@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Porra Mundial</title>
+
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <h1>Porra Mundial</h1>
+
+      <div class="scoreboard">
+        <div class="score ane">
+          <span class="label">ANE</span>
+          <span class="value" id="score-ane">0</span>
+        </div>
+
+        <div class="score aitor">
+          <span class="label">AITOR</span>
+          <span class="value" id="score-aitor">0</span>
+        </div>
+
+        <div class="score total">
+          <span class="label">JUGADOS</span>
+          <span class="value" id="played-count">0</span>
+        </div>
+
+        <div id="auth-box"></div>
+        <button class="danger" id="reset-btn">Reset</button>
+      </div>
+
+      <nav class="tabs">
+        <button class="tab active" data-view="home">Home</button>
+        <button class="tab" data-view="ane">ANE</button>
+        <button class="tab" data-view="aitor">AITOR</button>
+        <button class="tab" data-view="groups">Grupos</button>
+        <button class="tab" data-view="matches">Partidos</button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
