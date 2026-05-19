@@ -1,6 +1,6 @@
-import { createInitialState, mergeRemoteMatches } from "./state.js";
 import {
   finishRedirectSignIn,
+  loadPrivateConfig,
   loadRemoteState,
   saveRemoteState,
   subscribeRemoteState,
@@ -8,16 +8,24 @@ import {
   signInGoogle,
   logOut,
 } from "./firebase.js";
-import { renderScoreboard, renderContent } from "./ui.js";
 
-const baseState = createInitialState();
+import {
+  enrichTeamsWithGroups,
+  buildMatchesFromConfig,
+  mergeRemoteMatches,
+} from "./state.js";
+
+import { renderScoreboard, renderContent } from "./ui.js";
 
 let state = {
   currentView: "home",
-  matches: [],
   user: null,
-  canEdit: false,
   hasAccess: false,
+  canEdit: false,
+  teams: [],
+  groups: {},
+  schedule: {},
+  matches: [],
 };
 
 let unsubscribeRemote = null;
@@ -50,6 +58,7 @@ function renderAuthBox() {
       await signInGoogle();
     });
   }
+
   document.getElementById("reset-btn").style.display = state.hasAccess ? "inline-block" : "none";
 }
 
@@ -58,12 +67,9 @@ function renderApp() {
 
   const tabs = document.querySelector(".tabs");
   const view = document.getElementById("view");
-  const resetBtn = document.getElementById("reset-btn");
 
   if (!state.user) {
     tabs.style.display = "none";
-    resetBtn.style.display = "none";
-
     document.getElementById("score-ane").textContent = "-";
     document.getElementById("score-aitor").textContent = "-";
     document.getElementById("played-count").textContent = "-";
@@ -79,8 +85,6 @@ function renderApp() {
 
   if (!state.hasAccess) {
     tabs.style.display = "none";
-    resetBtn.style.display = "none";
-
     document.getElementById("score-ane").textContent = "-";
     document.getElementById("score-aitor").textContent = "-";
     document.getElementById("played-count").textContent = "-";
@@ -88,16 +92,13 @@ function renderApp() {
     view.innerHTML = `
       <div class="card">
         <h2>Acceso no autorizado</h2>
-        <p class="muted">
-          Tu cuenta ha iniciado sesión, pero no tiene permisos para ver esta porra.
-        </p>
+        <p class="muted">Tu cuenta no tiene permisos para ver esta porra.</p>
       </div>
     `;
     return;
   }
 
   tabs.style.display = "flex";
-  resetBtn.style.display = "inline-block";
 
   renderScoreboard(state);
   setActiveTab(state.currentView);
@@ -107,6 +108,8 @@ function renderApp() {
 }
 
 async function handleMatchChange(matchId, homeGoals, awayGoals) {
+  if (!state.canEdit) return;
+
   const match = state.matches.find((m) => m.id === matchId);
   if (!match) return;
 
@@ -115,25 +118,20 @@ async function handleMatchChange(matchId, homeGoals, awayGoals) {
 
   renderApp();
 
-  if (state.canEdit) {
-    try {
-      await saveRemoteState(state);
-    } catch (error) {
-      console.error("Error guardando en Firestore:", error);
-      alert("No se pudo guardar el cambio en Firebase.");
-    }
+  try {
+    await saveRemoteState(state);
+  } catch (error) {
+    console.error("Error guardando en Firestore:", error);
+    alert("No se pudo guardar el cambio.");
   }
 }
 
 async function handleReset() {
-  if (!state.canEdit) {
-    alert("Debes iniciar sesión para resetear.");
-    return;
-  }
+  if (!state.canEdit) return;
 
   if (!confirm("¿Seguro que quieres resetear todos los resultados?")) return;
 
-  state.matches = baseState.matches.map((m) => ({
+  state.matches = state.matches.map((m) => ({
     ...m,
     homeGoals: null,
     awayGoals: null,
@@ -144,8 +142,8 @@ async function handleReset() {
   try {
     await saveRemoteState(state);
   } catch (error) {
-    console.error("Error reseteando en Firestore:", error);
-    alert("No se pudo resetear en Firebase.");
+    console.error("Error reseteando:", error);
+    alert("No se pudo resetear.");
   }
 }
 
@@ -167,8 +165,11 @@ async function initRemoteForUser(user) {
   }
 
   state.user = user || null;
-  state.canEdit = false;
   state.hasAccess = false;
+  state.canEdit = false;
+  state.teams = [];
+  state.groups = {};
+  state.schedule = {};
   state.matches = [];
 
   if (!user) {
@@ -177,38 +178,41 @@ async function initRemoteForUser(user) {
   }
 
   try {
-    const remote = await loadRemoteState();
-
-    if (remote?.matches) {
-      state.matches = mergeRemoteMatches(baseState.matches, remote.matches);
-    } else {
-      state.matches = baseState.matches;
-      await saveRemoteState({
-        ...state,
-        matches: state.matches,
-      });
+    const config = await loadPrivateConfig();
+    if (!config?.teams || !config?.groups) {
+      throw new Error("Config privada incompleta");
     }
 
-    state.canEdit = true;
+    state.teams = enrichTeamsWithGroups(config.teams, config.groups);
+    state.groups = config.groups;
+    state.schedule = config.schedule || {};
+
+    const baseMatches = buildMatchesFromConfig(state.groups, state.schedule);
+
+    const remote = await loadRemoteState();
+    if (remote?.matches) {
+      state.matches = mergeRemoteMatches(baseMatches, remote.matches);
+    } else {
+      state.matches = baseMatches;
+      await saveRemoteState(state);
+    }
+
     state.hasAccess = true;
+    state.canEdit = true;
 
     unsubscribeRemote = subscribeRemoteState((remoteData) => {
-      if (!remoteData?.matches) return;
-      state.matches = mergeRemoteMatches(baseState.matches, remoteData.matches);
+      const freshBaseMatches = buildMatchesFromConfig(state.groups, state.schedule);
+      state.matches = mergeRemoteMatches(freshBaseMatches, remoteData?.matches || []);
       renderApp();
     });
   } catch (error) {
-    console.error("Error cargando estado remoto:", error);
-
-    state.canEdit = false;
+    console.error("Error cargando datos privados:", error);
     state.hasAccess = false;
+    state.canEdit = false;
+    state.teams = [];
+    state.groups = {};
+    state.schedule = {};
     state.matches = [];
-
-    if (error.code === "permission-denied" || error.code === "firestore/permission-denied") {
-      console.warn("Usuario autenticado pero sin permisos");
-    } else {
-      alert("No se pudo cargar la porra desde Firebase.");
-    }
   }
 
   renderApp();
@@ -218,15 +222,7 @@ async function init() {
   attachStaticHandlers();
   await finishRedirectSignIn();
 
-  //watchAuth(async (user) => {
-  //  await initRemoteForUser(user);
-  //});
-
   watchAuth(async (user) => {
-    if (user) {
-      console.log("UID:", user.uid);
-      console.log("EMAIL:", user.email);
-    }
     await initRemoteForUser(user);
   });
 

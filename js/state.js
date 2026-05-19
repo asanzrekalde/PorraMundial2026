@@ -1,9 +1,22 @@
-import { GROUPS, MATCH_SCHEDULE } from "./data.js";
+export function enrichTeamsWithGroups(teams = [], groups = {}) {
+  const groupById = {};
 
-export function createInitialState() {
+  Object.entries(groups).forEach(([group, ids]) => {
+    ids.forEach((id) => {
+      groupById[id] = group;
+    });
+  });
+
+  return teams.map((team) => ({
+    ...team,
+    group: groupById[team.id] ?? null,
+  }));
+}
+
+export function buildMatchesFromConfig(groups = {}, schedule = {}) {
   const matches = [];
 
-  Object.entries(GROUPS).forEach(([groupName, teamIds]) => {
+  Object.entries(groups).forEach(([groupName, teamIds]) => {
     for (let i = 0; i < teamIds.length; i++) {
       for (let j = i + 1; j < teamIds.length; j++) {
         const matchId = `${groupName}-${teamIds[i]}-${teamIds[j]}`;
@@ -13,7 +26,7 @@ export function createInitialState() {
           group: groupName,
           home: teamIds[i],
           away: teamIds[j],
-          date: MATCH_SCHEDULE[matchId] || null,
+          date: schedule[matchId] || null,
           homeGoals: null,
           awayGoals: null,
         });
@@ -21,10 +34,7 @@ export function createInitialState() {
     }
   });
 
-  return {
-    currentView: "home",
-    matches,
-  };
+  return matches;
 }
 
 export function mergeRemoteMatches(baseMatches, remoteMatches = []) {
