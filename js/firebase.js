@@ -34,6 +34,7 @@ export const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
+const configDocRef = doc(db, "porra", "config");
 const sharedDocRef = doc(db, "porra", "sharedState");
 
 function isMobileDevice() {
@@ -65,6 +66,23 @@ export async function logOut() {
 
 export function watchAuth(callback) {
   return onAuthStateChanged(auth, callback);
+}
+
+export async function savePrivateConfig(config) {
+  await setDoc(
+    configDocRef,
+    {
+      ...config,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email ?? null,
+    },
+    { merge: true }
+  );
+}
+
+export async function loadPrivateConfig() {
+  const snap = await getDoc(configDocRef);
+  return snap.exists() ? snap.data() : null;
 }
 
 export async function loadRemoteState() {
