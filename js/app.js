@@ -49,14 +49,38 @@ function renderAuthBox() {
       await signInGoogle();
     });
   }
+  document.getElementById("reset-btn").style.display = state.user ? "inline-block" : "none";
 }
 
 function renderApp() {
-  renderScoreboard(state);
   renderAuthBox();
+
+  const tabs = document.querySelector(".tabs");
+  const view = document.getElementById("view");
+
+  if (!state.user) {
+    tabs.style.display = "none";
+
+    document.getElementById("score-ane").textContent = "-";
+    document.getElementById("score-aitor").textContent = "-";
+    document.getElementById("played-count").textContent = "-";
+
+    view.innerHTML = `
+      <div class="card">
+        <h2>Inicia sesión para acceder</h2>
+        <p class="muted">
+          Esta porra es privada. Solo los usuarios autorizados pueden verla y editarla.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  tabs.style.display = "flex";
+
+  renderScoreboard(state);
   setActiveTab(state.currentView);
 
-  const view = document.getElementById("view");
   view.innerHTML = "";
   view.appendChild(renderContent(state, handleMatchChange));
 }
@@ -125,7 +149,9 @@ async function initRemoteForUser(user) {
   state.canEdit = !!user;
 
   if (!user) {
-    state.matches = baseState.matches;
+    state.user = null;
+    state.canEdit = false;
+    state.matches = [];
     renderApp();
     return;
   }
