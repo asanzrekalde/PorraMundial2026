@@ -182,7 +182,15 @@ async function init() {
   attachStaticHandlers();
   await finishRedirectSignIn();
 
+  //watchAuth(async (user) => {
+  //  await initRemoteForUser(user);
+  //});
+
   watchAuth(async (user) => {
+    if (user) {
+      console.log("UID:", user.uid);
+      console.log("EMAIL:", user.email);
+    }
     await initRemoteForUser(user);
   });
 
