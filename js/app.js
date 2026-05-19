@@ -14,9 +14,10 @@ const baseState = createInitialState();
 
 let state = {
   currentView: "home",
-  matches: baseState.matches,
+  matches: [],
   user: null,
   canEdit: false,
+  hasAccess: false,
 };
 
 let unsubscribeRemote = null;
@@ -49,7 +50,7 @@ function renderAuthBox() {
       await signInGoogle();
     });
   }
-  document.getElementById("reset-btn").style.display = state.user ? "inline-block" : "none";
+  document.getElementById("reset-btn").style.display = state.hasAccess ? "inline-block" : "none";
 }
 
 function renderApp() {
@@ -57,9 +58,11 @@ function renderApp() {
 
   const tabs = document.querySelector(".tabs");
   const view = document.getElementById("view");
+  const resetBtn = document.getElementById("reset-btn");
 
   if (!state.user) {
     tabs.style.display = "none";
+    resetBtn.style.display = "none";
 
     document.getElementById("score-ane").textContent = "-";
     document.getElementById("score-aitor").textContent = "-";
@@ -68,8 +71,25 @@ function renderApp() {
     view.innerHTML = `
       <div class="card">
         <h2>Inicia sesión para acceder</h2>
+        <p class="muted">Esta porra es privada.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (!state.hasAccess) {
+    tabs.style.display = "none";
+    resetBtn.style.display = "none";
+
+    document.getElementById("score-ane").textContent = "-";
+    document.getElementById("score-aitor").textContent = "-";
+    document.getElementById("played-count").textContent = "-";
+
+    view.innerHTML = `
+      <div class="card">
+        <h2>Acceso no autorizado</h2>
         <p class="muted">
-          Esta porra es privada. Solo los usuarios autorizados pueden verla y editarla.
+          Tu cuenta ha iniciado sesión, pero no tiene permisos para ver esta porra.
         </p>
       </div>
     `;
@@ -77,6 +97,7 @@ function renderApp() {
   }
 
   tabs.style.display = "flex";
+  resetBtn.style.display = "inline-block";
 
   renderScoreboard(state);
   setActiveTab(state.currentView);
@@ -146,24 +167,30 @@ async function initRemoteForUser(user) {
   }
 
   state.user = user || null;
-  state.canEdit = !!user;
+  state.canEdit = false;
+  state.hasAccess = false;
+  state.matches = [];
 
   if (!user) {
-    state.user = null;
-    state.canEdit = false;
-    state.matches = [];
     renderApp();
     return;
   }
 
   try {
     const remote = await loadRemoteState();
+
     if (remote?.matches) {
       state.matches = mergeRemoteMatches(baseState.matches, remote.matches);
     } else {
       state.matches = baseState.matches;
-      await saveRemoteState(state);
+      await saveRemoteState({
+        ...state,
+        matches: state.matches,
+      });
     }
+
+    state.canEdit = true;
+    state.hasAccess = true;
 
     unsubscribeRemote = subscribeRemoteState((remoteData) => {
       if (!remoteData?.matches) return;
@@ -172,7 +199,16 @@ async function initRemoteForUser(user) {
     });
   } catch (error) {
     console.error("Error cargando estado remoto:", error);
-    alert("No se pudo cargar la porra desde Firebase.");
+
+    state.canEdit = false;
+    state.hasAccess = false;
+    state.matches = [];
+
+    if (error.code === "permission-denied" || error.code === "firestore/permission-denied") {
+      console.warn("Usuario autenticado pero sin permisos");
+    } else {
+      alert("No se pudo cargar la porra desde Firebase.");
+    }
   }
 
   renderApp();
