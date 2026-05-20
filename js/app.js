@@ -192,9 +192,13 @@ function attachStaticHandlers() {
     tab.addEventListener("click", () => {
       state.currentView = tab.dataset.view;
       renderApp();
+
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth"
+      });
     });
   });
-
   document.getElementById("reset-btn").addEventListener("click", handleReset);
 }
 
