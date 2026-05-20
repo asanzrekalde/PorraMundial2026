@@ -38,47 +38,181 @@ function sortMatches(matches) {
   });
 }
 
+function isGroupMatch(match) {
+  return !match.phase || match.phase === "groups";
+}
+
+function isKnockoutMatch(match) {
+  return match.phase && match.phase !== "groups";
+}
+
+function getMatchPointsForTeam(match, teamId) {
+  if (match.homeGoals == null || match.awayGoals == null) return 0;
+
+  const isHome = match.home === teamId;
+  const isAway = match.away === teamId;
+
+  if (!isHome && !isAway) return 0;
+
+  // Fase de grupos: victoria 3, empate 1, derrota 0
+  if (isGroupMatch(match)) {
+    const goalsFor = isHome ? match.homeGoals : match.awayGoals;
+    const goalsAgainst = isHome ? match.awayGoals : match.homeGoals;
+
+    if (goalsFor > goalsAgainst) return 3;
+    if (goalsFor === goalsAgainst) return 1;
+    return 0;
+  }
+
+  // KO futuro: el que pasa suma 3.
+  // Si winnerTeamId existe, manda winnerTeamId.
+  if (isKnockoutMatch(match)) {
+    if (match.winnerTeamId) {
+      return match.winnerTeamId === teamId ? 3 : 0;
+    }
+
+    // Si no hay winnerTeamId pero el marcador no está empatado,
+    // deducimos ganador por goles.
+    const goalsFor = isHome ? match.homeGoals : match.awayGoals;
+    const goalsAgainst = isHome ? match.awayGoals : match.homeGoals;
+
+    if (goalsFor > goalsAgainst) return 3;
+    return 0;
+  }
+
+  return 0;
+}
+
 export function calculateTeamPoints(state, teamId) {
-  let points = 0;
-
-  state.matches.forEach((match) => {
-    if (match.homeGoals == null || match.awayGoals == null) return;
-
-    if (match.home === teamId) {
-      if (match.homeGoals > match.awayGoals) points += 3;
-      else if (match.homeGoals === match.awayGoals) points += 1;
-    }
-
-    if (match.away === teamId) {
-      if (match.awayGoals > match.homeGoals) points += 3;
-      else if (match.awayGoals === match.homeGoals) points += 1;
-    }
-  });
-
-  return points;
+  return state.matches.reduce((acc, match) => {
+    return acc + getMatchPointsForTeam(match, teamId);
+  }, 0);
 }
 
 export function calculatePoints(state) {
   const points = { ANE: 0, AITOR: 0 };
 
   state.matches.forEach((match) => {
-    if (match.homeGoals == null || match.awayGoals == null) return;
-
     const home = getTeamById(state, match.home);
     const away = getTeamById(state, match.away);
-    if (!home || !away) return;
 
-    if (match.homeGoals > match.awayGoals) {
-      if (home.owner) points[home.owner] += 3;
-    } else if (match.awayGoals > match.homeGoals) {
-      if (away.owner) points[away.owner] += 3;
-    } else {
-      if (home.owner) points[home.owner] += 1;
-      if (away.owner) points[away.owner] += 1;
+    if (home?.owner) {
+      points[home.owner] += getMatchPointsForTeam(match, home.id);
+    }
+
+    if (away?.owner) {
+      points[away.owner] += getMatchPointsForTeam(match, away.id);
     }
   });
 
   return points;
+}
+
+function createEmptyStanding(team) {
+  return {
+    team,
+    pj: 0,
+    g: 0,
+    e: 0,
+    p: 0,
+    gf: 0,
+    gc: 0,
+    dg: 0,
+    pts: 0,
+  };
+}
+
+function calculateGroupStandings(state) {
+  const standingsByGroup = {};
+
+  Object.entries(state.groups).forEach(([groupName, teamIds]) => {
+    standingsByGroup[groupName] = {};
+
+    teamIds.forEach((teamId) => {
+      const team = getTeamById(state, teamId);
+      if (team) {
+        standingsByGroup[groupName][teamId] = createEmptyStanding(team);
+      }
+    });
+  });
+
+  state.matches
+    .filter(isGroupMatch)
+    .forEach((match) => {
+      if (match.homeGoals == null || match.awayGoals == null) return;
+
+      const group = match.group;
+      if (!group || !standingsByGroup[group]) return;
+
+      const homeStanding = standingsByGroup[group][match.home];
+      const awayStanding = standingsByGroup[group][match.away];
+
+      if (!homeStanding || !awayStanding) return;
+
+      homeStanding.pj += 1;
+      awayStanding.pj += 1;
+
+      homeStanding.gf += match.homeGoals;
+      homeStanding.gc += match.awayGoals;
+
+      awayStanding.gf += match.awayGoals;
+      awayStanding.gc += match.homeGoals;
+
+      if (match.homeGoals > match.awayGoals) {
+        homeStanding.g += 1;
+        homeStanding.pts += 3;
+        awayStanding.p += 1;
+      } else if (match.homeGoals < match.awayGoals) {
+        awayStanding.g += 1;
+        awayStanding.pts += 3;
+        homeStanding.p += 1;
+      } else {
+        homeStanding.e += 1;
+        awayStanding.e += 1;
+        homeStanding.pts += 1;
+        awayStanding.pts += 1;
+      }
+
+      homeStanding.dg = homeStanding.gf - homeStanding.gc;
+      awayStanding.dg = awayStanding.gf - awayStanding.gc;
+    });
+
+  const result = {};
+
+  Object.entries(standingsByGroup).forEach(([groupName, standingsObj]) => {
+    result[groupName] = Object.values(standingsObj).sort(compareStandings);
+  });
+
+  return result;
+}
+
+function compareStandings(a, b) {
+  // Simplificado:
+  // 1) puntos
+  // 2) diferencia de goles
+  // 3) goles a favor
+  // 4) nombre
+  if (b.pts !== a.pts) return b.pts - a.pts;
+  if (b.dg !== a.dg) return b.dg - a.dg;
+  if (b.gf !== a.gf) return b.gf - a.gf;
+  return a.team.name.localeCompare(b.team.name);
+}
+
+function calculateBestThirds(state) {
+  const standingsByGroup = calculateGroupStandings(state);
+
+  return Object.entries(standingsByGroup)
+    .map(([groupName, standings]) => {
+      const third = standings[2];
+      if (!third) return null;
+
+      return {
+        ...third,
+        group: groupName,
+      };
+    })
+    .filter(Boolean)
+    .sort(compareStandings);
 }
 
 export function renderScoreboard(state) {
@@ -219,38 +353,42 @@ function renderMatches(state, onMatchChange, filterOwner = null, editable = true
 
 function renderGroups(state) {
   const container = document.createElement("div");
-  container.className = "grid";
 
-  Object.entries(state.groups).forEach(([groupName, teamIds]) => {
-    const groupDiv = document.createElement("div");
-    groupDiv.className = "group";
+  const standingsByGroup = calculateGroupStandings(state);
+  const bestThirds = calculateBestThirds(state);
 
-    const items = teamIds
-      .map((id) => getTeamById(state, id))
-      .filter(Boolean)
-      .map((team) => {
-        const ownerClass =
-          team.owner === "ANE"
-            ? "owner-ane"
-            : team.owner === "AITOR"
-            ? "owner-aitor"
-            : "owner-tbd";
+  const intro = document.createElement("div");
+  intro.className = "card";
+  intro.innerHTML = `
+    <h2>Clasificación de grupos</h2>
+    <p class="muted">
+      Orden provisional: puntos, diferencia de goles, goles a favor y nombre.
+      Los dos primeros pasan directamente. Los 8 mejores terceros también pasan.
+    </p>
+  `;
+  container.appendChild(intro);
 
-        return `
-          <li>
-            ${team.name}
-            <span class="pill ${ownerClass}">${team.owner ?? "TBD"}</span>
-          </li>
-        `;
-      })
-      .join("");
+  const bestThirdsCard = document.createElement("div");
+  bestThirdsCard.className = "card";
+  bestThirdsCard.innerHTML = `
+    <h2>Mejores terceros</h2>
+    <p class="muted">
+      Los 8 primeros de esta tabla serían los mejores terceros clasificados.
+    </p>
+    ${renderStandingsTable(bestThirds, true)}
+  `;
+  container.appendChild(bestThirdsCard);
 
-    groupDiv.innerHTML = `
-      <h3>Grupo ${groupName}</h3>
-      <ul>${items}</ul>
+  Object.entries(standingsByGroup).forEach(([groupName, standings]) => {
+    const card = document.createElement("div");
+    card.className = "card";
+
+    card.innerHTML = `
+      <h2>Grupo ${groupName}</h2>
+      ${renderStandingsTable(standings)}
     `;
 
-    container.appendChild(groupDiv);
+    container.appendChild(card);
   });
 
   return container;
@@ -330,4 +468,66 @@ export function renderContent(state, onMatchChange) {
     default:
       return renderHome(state);
   }
+}
+
+function renderStandingsTable(standings, showGroup = false) {
+  const rows = standings
+    .map((s, index) => {
+      const ownerClass =
+        s.team.owner === "ANE"
+          ? "owner-ane"
+          : s.team.owner === "AITOR"
+          ? "owner-aitor"
+          : "owner-tbd";
+
+      const positionClass =
+        index < 2
+          ? "qualified"
+          : index === 2
+          ? "third-place"
+          : "";
+
+      return `
+        <tr class="${positionClass}">
+          <td>${index + 1}</td>
+          ${showGroup ? `<td>${s.group}</td>` : ""}
+          <td>
+            ${s.team.name}
+            <span class="pill ${ownerClass}">${s.team.owner ?? "TBD"}</span>
+          </td>
+          <td>${s.pj}</td>
+          <td>${s.g}</td>
+          <td>${s.e}</td>
+          <td>${s.p}</td>
+          <td>${s.gf}</td>
+          <td>${s.gc}</td>
+          <td>${s.dg}</td>
+          <td><strong>${s.pts}</strong></td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <table class="table standings-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          ${showGroup ? "<th>Grupo</th>" : ""}
+          <th>Equipo</th>
+          <th>PJ</th>
+          <th>G</th>
+          <th>E</th>
+          <th>P</th>
+          <th>GF</th>
+          <th>GC</th>
+          <th>DG</th>
+          <th>Pts</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  `;
 }

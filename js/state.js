@@ -23,12 +23,14 @@ export function buildMatchesFromConfig(groups = {}, schedule = {}) {
 
         matches.push({
           id: matchId,
+          phase: "groups",
           group: groupName,
           home: teamIds[i],
           away: teamIds[j],
           date: schedule[matchId] || null,
           homeGoals: null,
           awayGoals: null,
+          winnerTeamId: null,
         });
       }
     }
@@ -40,7 +42,7 @@ export function buildMatchesFromConfig(groups = {}, schedule = {}) {
 export function mergeRemoteMatches(baseMatches, remoteMatches = []) {
   const byId = new Map((remoteMatches || []).map((m) => [m.id, m]));
 
-  return baseMatches.map((base) => {
+  const mergedBase = baseMatches.map((base) => {
     const remote = byId.get(base.id);
     if (!remote) return base;
 
@@ -54,6 +56,13 @@ export function mergeRemoteMatches(baseMatches, remoteMatches = []) {
         Number.isInteger(remote.awayGoals) && remote.awayGoals >= 0
           ? remote.awayGoals
           : null,
+      winnerTeamId: remote.winnerTeamId ?? null,
     };
   });
+
+  const baseIds = new Set(baseMatches.map((m) => m.id));
+
+  const extraMatches = (remoteMatches || []).filter((m) => !baseIds.has(m.id));
+
+  return [...mergedBase, ...extraMatches];
 }

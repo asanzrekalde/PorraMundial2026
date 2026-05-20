@@ -407,3 +407,40 @@ input[type="number"]{ width: 64px; }
     text-align: left;
   }
 }
+
+.standings-table th,
+.standings-table td {
+  text-align: center;
+}
+
+.standings-table th:nth-child(3),
+.standings-table td:nth-child(3),
+.standings-table th:nth-child(2):last-child,
+.standings-table td:nth-child(2):last-child {
+  text-align: left;
+}
+
+.standings-table .qualified td {
+  background: rgba(187, 247, 208, 0.35);
+}
+
+.standings-table .third-place td {
+  background: rgba(254, 240, 138, 0.28);
+}
+
+@media (max-width: 700px) {
+  .standings-table {
+    font-size: 12px;
+  }
+
+  .standings-table th,
+  .standings-table td {
+    padding: 6px 4px;
+  }
+
+  .standings-table .pill {
+    display: block;
+    width: fit-content;
+    margin-top: 4px;
+  }
+}
