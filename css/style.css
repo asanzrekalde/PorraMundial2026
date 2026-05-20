@@ -319,3 +319,91 @@ input[type="number"]{ width: 64px; }
 .chart-wrap {
   height: 220px;
 }
+
+.match-row {
+  display: grid;
+  grid-template-columns: 105px minmax(0, 1fr) 56px 18px 56px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f4f8;
+  max-width: 100%;
+}
+
+.match-row > * {
+  min-width: 0;
+}
+
+.match-row span {
+  overflow-wrap: anywhere;
+}
+
+.match-date {
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.match-row input[type="number"] {
+  width: 56px;
+  max-width: 100%;
+  text-align: center;
+}
+
+.score-readonly {
+  display: inline-block;
+  min-width: 32px;
+  text-align: center;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .view {
+    padding: 10px;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .card {
+    overflow-x: hidden;
+  }
+
+  .match-row {
+    grid-template-columns: minmax(0, 1fr) 44px 12px 44px minmax(0, 1fr);
+    gap: 6px;
+    padding: 12px 0;
+  }
+
+  .match-date {
+    grid-column: 1 / -1;
+    white-space: normal;
+    margin-bottom: 2px;
+  }
+
+  .match-row input[type="number"] {
+    width: 44px;
+    padding: 7px 4px;
+    font-size: 14px;
+  }
+
+  .score-readonly {
+    min-width: 32px;
+    padding: 4px 6px;
+  }
+
+  .match-row span {
+    font-size: 13px;
+    line-height: 1.2;
+  }
+
+  .match-row span:nth-child(2) {
+    text-align: right;
+  }
+
+  .match-row span:last-child {
+    text-align: left;
+  }
+}
