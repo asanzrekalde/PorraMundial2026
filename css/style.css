@@ -497,3 +497,59 @@ input[type="number"]{ width: 64px; }
     margin-top: 4px;
   }
 }
+
+
+/* NEW */
+
+.card {
+  border-top: 4px solid transparent;
+}
+
+.card:nth-of-type(3n + 1) {
+  border-top-color: #bbf7d0;
+}
+
+.card:nth-of-type(3n + 2) {
+  border-top-color: #ddd6fe;
+}
+
+.card:nth-of-type(3n + 3) {
+  border-top-color: #bae6fd;
+}
+
+.tab.active {
+  background: linear-gradient(135deg, #dbeafe, #f5f3ff);
+  border-color: #93c5fd;
+}
+
+.score.ane {
+  background: linear-gradient(135deg, #dcfce7, #ffffff);
+}
+
+.score.aitor {
+  background: linear-gradient(135deg, #ede9fe, #ffffff);
+}
+
+.score.total {
+  background: linear-gradient(135deg, #e0f2fe, #ffffff);
+}
+
+.group {
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.quick-group h3 {
+  color: #334155;
+}
+
+.standings-table .qualified td:first-child {
+  border-left: 4px solid #22c55e;
+}
+
+.standings-table .third-place td:first-child {
+  border-left: 4px solid #eab308;
+}
+
+.standings-table .eliminated td:first-child {
+  border-left: 4px solid #cbd5e1;
+}

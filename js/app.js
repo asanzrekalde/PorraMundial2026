@@ -1,3 +1,9 @@
+const TOURNAMENT_START = new Date("2026-06-11T15:00:00-04:00");
+
+function isResetAllowed() {
+  return state.hasAccess && new Date() < TOURNAMENT_START;
+}
+
 import {
   finishRedirectSignIn,
   loadPrivateConfig,
@@ -60,7 +66,18 @@ function renderAuthBox() {
     });
   }
 
-  document.getElementById("reset-btn").style.display = state.hasAccess ? "inline-block" : "none";
+  const resetBtn = document.getElementById("reset-btn");
+
+  if (resetBtn) {
+    const resetAllowed = isResetAllowed();
+
+    resetBtn.style.display = state.hasAccess ? "inline-block" : "none";
+    resetBtn.disabled = !resetAllowed;
+    resetBtn.title = resetAllowed
+      ? "Resetear resultados"
+      : "Reset desactivado desde el inicio del Mundial";
+  }
+
 }
 
 function renderApp() {
@@ -162,6 +179,11 @@ async function handleReset() {
   } catch (error) {
     console.error("Error reseteando:", error);
     alert("No se pudo resetear.");
+  }
+
+  if (!isResetAllowed()) {
+    alert("El reset está desactivado desde el inicio del Mundial.");
+    return;
   }
 }
 
