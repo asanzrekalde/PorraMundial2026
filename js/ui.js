@@ -351,33 +351,72 @@ function renderMatches(state, onMatchChange, filterOwner = null, editable = true
   return container;
 }
 
+function renderGroupsQuickView(state) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "card";
+
+  const groupsHtml = Object.entries(state.groups)
+    .map(([groupName, teamIds]) => {
+      const items = teamIds
+        .map((id) => getTeamById(state, id))
+        .filter(Boolean)
+        .map((team) => {
+          const ownerClass =
+            team.owner === "ANE"
+              ? "owner-ane"
+              : team.owner === "AITOR"
+              ? "owner-aitor"
+              : "owner-tbd";
+
+          return `
+            <li>
+              <span>${team.name}</span>
+              <span class="pill ${ownerClass}">${team.owner ?? "TBD"}</span>
+            </li>
+          `;
+        })
+        .join("");
+
+      return `
+        <div class="group quick-group">
+          <h3>Grupo ${groupName}</h3>
+          <ul>${items}</ul>
+        </div>
+      `;
+    })
+    .join("");
+
+  wrapper.innerHTML = `
+    <h2>Vista rápida de grupos</h2>
+    <p class="muted">Resumen compacto de equipos y dueño de cada selección.</p>
+    <div class="grid">
+      ${groupsHtml}
+    </div>
+  `;
+
+  return wrapper;
+}
+
 function renderGroups(state) {
   const container = document.createElement("div");
 
   const standingsByGroup = calculateGroupStandings(state);
   const bestThirds = calculateBestThirds(state);
 
+  // 1) Vista rápida compacta
+  container.appendChild(renderGroupsQuickView(state));
+
+  // 2) Clasificación por grupos
   const intro = document.createElement("div");
   intro.className = "card";
   intro.innerHTML = `
-    <h2>Clasificación de grupos</h2>
+    <h2>Clasificación automática por grupos</h2>
     <p class="muted">
       Orden provisional: puntos, diferencia de goles, goles a favor y nombre.
-      Los dos primeros pasan directamente. Los 8 mejores terceros también pasan.
+      Los dos primeros aparecen en verde. El tercero aparece en amarillo.
     </p>
   `;
   container.appendChild(intro);
-
-  const bestThirdsCard = document.createElement("div");
-  bestThirdsCard.className = "card";
-  bestThirdsCard.innerHTML = `
-    <h2>Mejores terceros</h2>
-    <p class="muted">
-      Los 8 primeros de esta tabla serían los mejores terceros clasificados.
-    </p>
-    ${renderStandingsTable(bestThirds, true)}
-  `;
-  container.appendChild(bestThirdsCard);
 
   Object.entries(standingsByGroup).forEach(([groupName, standings]) => {
     const card = document.createElement("div");
@@ -385,11 +424,24 @@ function renderGroups(state) {
 
     card.innerHTML = `
       <h2>Grupo ${groupName}</h2>
-      ${renderStandingsTable(standings)}
+      ${renderStandingsTable(standings, { mode: "group" })}
     `;
 
     container.appendChild(card);
   });
+
+  // 3) Mejores terceros debajo
+  const bestThirdsCard = document.createElement("div");
+  bestThirdsCard.className = "card";
+  bestThirdsCard.innerHTML = `
+    <h2>Mejores terceros</h2>
+    <p class="muted">
+      Los 8 primeros de esta tabla serían los terceros clasificados para dieciseisavos.
+    </p>
+    ${renderStandingsTable(bestThirds, { showGroup: true, mode: "thirds" })}
+  `;
+
+  container.appendChild(bestThirdsCard);
 
   return container;
 }
@@ -470,7 +522,9 @@ export function renderContent(state, onMatchChange) {
   }
 }
 
-function renderStandingsTable(standings, showGroup = false) {
+function renderStandingsTable(standings, options = {}) {
+  const { showGroup = false, mode = "group" } = options;
+
   const rows = standings
     .map((s, index) => {
       const ownerClass =
@@ -480,18 +534,23 @@ function renderStandingsTable(standings, showGroup = false) {
           ? "owner-aitor"
           : "owner-tbd";
 
-      const positionClass =
-        index < 2
-          ? "qualified"
-          : index === 2
-          ? "third-place"
-          : "";
+      let positionClass = "";
+
+      if (mode === "group") {
+        if (index < 2) positionClass = "qualified";
+        else if (index === 2) positionClass = "third-place";
+      }
+
+      if (mode === "thirds") {
+        if (index < 8) positionClass = "qualified";
+        else positionClass = "eliminated";
+      }
 
       return `
         <tr class="${positionClass}">
           <td>${index + 1}</td>
           ${showGroup ? `<td>${s.group}</td>` : ""}
-          <td>
+          <td class="team-cell">
             ${s.team.name}
             <span class="pill ${ownerClass}">${s.team.owner ?? "TBD"}</span>
           </td>
