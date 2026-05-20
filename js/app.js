@@ -22,6 +22,7 @@ let state = {
   user: null,
   hasAccess: false,
   canEdit: false,
+  authChecked: false,
   teams: [],
   groups: {},
   schedule: {},
@@ -67,6 +68,23 @@ function renderApp() {
 
   const tabs = document.querySelector(".tabs");
   const view = document.getElementById("view");
+
+  if (!state.authChecked) {
+    tabs.style.display = "none";
+    document.getElementById("reset-btn").style.display = "none";
+
+    document.getElementById("score-ane").textContent = "-";
+    document.getElementById("score-aitor").textContent = "-";
+    document.getElementById("played-count").textContent = "-";
+
+    view.innerHTML = `
+      <div class="card">
+        <h2>Comprobando sesión...</h2>
+        <p class="muted">Un momento.</p>
+      </div>
+    `;
+    return;
+  }
 
   if (!state.user) {
     tabs.style.display = "none";
@@ -173,6 +191,7 @@ async function initRemoteForUser(user) {
   state.matches = [];
 
   if (!user) {
+    state.authChecked = true;
     renderApp();
     return;
   }
@@ -215,6 +234,7 @@ async function initRemoteForUser(user) {
     state.matches = [];
   }
 
+  state.authChecked = true;
   renderApp();
 }
 

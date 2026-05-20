@@ -3,10 +3,11 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
-  signInWithRedirect,
   getRedirectResult,
   signOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
 import {
   getFirestore,
@@ -45,9 +46,7 @@ function isMobileDevice() {
 }
 
 export async function signInGoogle() {
-  if (isMobileDevice()) {
-    return signInWithRedirect(auth, provider);
-  }
+  await setPersistence(auth, browserLocalPersistence);
   return signInWithPopup(auth, provider);
 }
 
