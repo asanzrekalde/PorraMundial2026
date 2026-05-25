@@ -21,7 +21,15 @@ function getOwnedTeams(state, owner) {
 
 function formatDate(dateString) {
   if (!dateString) return "Sin fecha";
-  return new Date(dateString).toLocaleString("es-ES", {
+
+  // Si la fecha no trae zona horaria, asumimos Eastern Time del calendario FIFA.
+  // En junio 2026, Eastern Time = UTC-4.
+  const hasTimeZone = /[zZ]$|[+-]\d{2}:\d{2}$/.test(dateString);
+  const normalizedDate = hasTimeZone ? dateString : `${dateString}-04:00`;
+
+  return new Date(normalizedDate).toLocaleString("es-ES", {
+    timeZone: "Europe/Madrid",
+    weekday: "short",
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
