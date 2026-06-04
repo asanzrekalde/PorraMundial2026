@@ -40,7 +40,7 @@ import {
 import { renderScoreboard, renderContent } from "./ui.js";
 
 let state = {
-  currentView: getSavedView(),,
+  currentView: getSavedView(),
   user: null,
   hasAccess: false,
   canEdit: false,
