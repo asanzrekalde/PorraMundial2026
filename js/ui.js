@@ -4,6 +4,34 @@ function getTeamById(state, id) {
   return state.teams.find((t) => t.id === id);
 }
 
+function renderFlag(team) {
+  if (!team?.flagCode) {
+    return `<span class="team-flag-placeholder" aria-hidden="true"></span>`;
+  }
+
+  return `
+    <img
+      class="team-flag"
+      src="https://flagcdn.com/16x12/${team.flagCode}.png"
+      srcset="https://flagcdn.com/32x24/${team.flagCode}.png 2x"
+      width="16"
+      height="12"
+      alt=""
+      aria-hidden="true"
+      loading="lazy"
+    />
+  `;
+}
+
+function renderTeamLabel(team) {
+  return `
+    <span class="team-label">
+      ${renderFlag(team)}
+      <span>${team.name}</span>
+    </span>
+  `;
+}
+
 function getOwnedTeams(state, owner) {
   const ids = Object.values(state.groups).flat();
   const seen = new Set();
@@ -312,11 +340,20 @@ function renderMatches(state, onMatchChange, filterOwner = null, editable = true
     if (editable && state.canEdit) {
       row.innerHTML = `
         <span class="match-date">${formattedDate}</span>
-        <span>${home.name}</span>
+
+        <span class="match-team match-team-home">
+          ${renderTeamLabel(home)}
+        </span>
+
         <input type="number" min="0" value="${match.homeGoals ?? ""}">
+
         <span>-</span>
+
         <input type="number" min="0" value="${match.awayGoals ?? ""}">
-        <span>${away.name}</span>
+
+        <span class="match-team match-team-away">
+          ${renderTeamLabel(away)}
+        </span>
       `;
 
       const inputs = row.querySelectorAll("input");
@@ -341,11 +378,20 @@ function renderMatches(state, onMatchChange, filterOwner = null, editable = true
     } else {
       row.innerHTML = `
         <span class="match-date">${formattedDate}</span>
-        <span>${home.name}</span>
+
+        <span class="match-team match-team-home">
+          ${renderTeamLabel(home)}
+        </span>
+
         <span class="score-readonly">${match.homeGoals ?? "-"}</span>
+
         <span>-</span>
+
         <span class="score-readonly">${match.awayGoals ?? "-"}</span>
-        <span>${away.name}</span>
+
+        <span class="match-team match-team-away">
+          ${renderTeamLabel(away)}
+        </span>
       `;
     }
 
@@ -378,7 +424,7 @@ function renderGroupsQuickView(state) {
 
           return `
             <li>
-              <span>${team.name}</span>
+              ${renderTeamLabel(team)}
               <span class="pill ${ownerClass}">${team.owner ?? "TBD"}</span>
             </li>
           `;
@@ -473,7 +519,7 @@ function renderOwnerView(state, owner, onMatchChange) {
       totalPoints += pts;
       return `
         <tr>
-          <td>${team.name}</td>
+          <td>${renderTeamLabel(team)}</td>
           <td>${team.group ?? "-"}</td>
           <td>${pts}</td>
         </tr>
@@ -559,7 +605,7 @@ function renderStandingsTable(standings, options = {}) {
           <td>${index + 1}</td>
           ${showGroup ? `<td>${s.group}</td>` : ""}
           <td class="team-cell">
-            ${s.team.name}
+            ${renderTeamLabel(s.team)}
             <span class="pill ${ownerClass}">${s.team.owner ?? "TBD"}</span>
           </td>
           <td>${s.pj}</td>

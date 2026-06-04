@@ -553,3 +553,69 @@ input[type="number"]{ width: 64px; }
 .standings-table .eliminated td:first-child {
   border-left: 4px solid #cbd5e1;
 }
+
+/* ---------- Banderas ---------- */
+
+.team-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.team-label > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.team-flag {
+  display: inline-block;
+  width: 16px;
+  height: 12px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+
+.team-flag-placeholder {
+  display: inline-block;
+  width: 16px;
+  height: 12px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: #e2e8f0;
+}
+
+.match-team {
+  min-width: 0;
+}
+
+.match-team-home .team-label {
+  justify-content: flex-end;
+}
+
+.match-team-away .team-label {
+  justify-content: flex-start;
+}
+
+@media (max-width: 640px) {
+  .team-label {
+    gap: 5px;
+  }
+
+  .team-flag,
+  .team-flag-placeholder {
+    width: 16px;
+    height: 12px;
+  }
+
+  .match-team-home {
+    text-align: right;
+  }
+
+  .match-team-away {
+    text-align: left;
+  }
+}
