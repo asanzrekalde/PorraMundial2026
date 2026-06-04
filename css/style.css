@@ -292,27 +292,45 @@ input[type="number"]{ width: 64px; }
   display: grid;
   grid-template-columns:
     125px
-    minmax(0, 1fr)
+    250px
     56px
     18px
     56px
-    minmax(0, 1fr)
-    125px;
+    minmax(180px, 1fr);
 
   gap: 10px;
   align-items: center;
+  justify-content: start;
+
   padding: 12px 0;
   border-bottom: 1px solid #f0f4f8;
   max-width: 100%;
 }
 
-/* Columna invisible para compensar el espacio ocupado por la fecha */
-.match-row::after {
-  content: "";
-}
-
 .match-row > * {
   min-width: 0;
+}
+
+/* Ya no necesitamos la columna fantasma */
+.match-row::after {
+  display: none;
+}
+
+/* Ambos países alineados a la izquierda */
+.match-team-home,
+.match-team-away {
+  text-align: left;
+}
+
+.match-team-home .team-label,
+.match-team-away .team-label {
+  justify-content: flex-start;
+}
+
+.match-row input[type="number"] {
+  width: 56px;
+  max-width: 100%;
+  text-align: center;
 }
 
 .match-team-home {
