@@ -1,3 +1,8 @@
+import {
+  KNOCKOUT_PHASES,
+  KNOCKOUT_TEMPLATE,
+} from "./knockout.js";
+
 let chartInstance = null;
 
 function getTeamById(state, id) {
@@ -565,6 +570,108 @@ function renderOwnerView(state, owner, onMatchChange) {
   return container;
 }
 
+function getKnockoutSourceLabel(source) {
+  if (source.type === "group") {
+    return `${source.position}º Grupo ${source.group}`;
+  }
+
+  if (source.type === "third") {
+    return `3º ${source.candidates.join("/")}`;
+  }
+
+  if (source.type === "winner") {
+    return `Ganador ${source.matchId.replace("KO-", "")}`;
+  }
+
+  if (source.type === "loser") {
+    return `Perdedor ${source.matchId.replace("KO-", "")}`;
+  }
+
+  return "Pendiente";
+}
+
+function renderKnockoutMatch(match) {
+  return `
+    <div class="knockout-match">
+      <div class="knockout-match-number">
+        ${match.title ?? `Partido ${match.number}`}
+      </div>
+
+      <div class="knockout-team">
+        ${getKnockoutSourceLabel(match.homeSource)}
+      </div>
+
+      <div class="knockout-versus">vs</div>
+
+      <div class="knockout-team">
+        ${getKnockoutSourceLabel(match.awaySource)}
+      </div>
+    </div>
+  `;
+}
+
+function renderKnockout() {
+  const container = document.createElement("div");
+
+  container.innerHTML = `
+    <div class="card">
+      <h2>Eliminatorias</h2>
+      <p class="muted">
+        Vista provisional del cuadro. En el siguiente paso conectaremos
+        los clasificados y ganadores para que se rellene automáticamente.
+      </p>
+
+      <div class="knockout-phase-tabs">
+        ${KNOCKOUT_PHASES.map(
+          (phase, index) => `
+            <button
+              class="knockout-phase-tab ${index === 0 ? "active" : ""}"
+              data-phase="${phase.id}"
+            >
+              ${phase.label}
+            </button>
+          `
+        ).join("")}
+      </div>
+    </div>
+
+    ${KNOCKOUT_PHASES.map(
+      (phase, index) => `
+        <section
+          class="card knockout-phase-panel"
+          data-phase-panel="${phase.id}"
+          ${index === 0 ? "" : 'hidden'}
+        >
+          <h2>${phase.label}</h2>
+
+          <div class="knockout-list">
+            ${KNOCKOUT_TEMPLATE
+              .filter((match) => match.phase === phase.id)
+              .map(renderKnockoutMatch)
+              .join("")}
+          </div>
+        </section>
+      `
+    ).join("")}
+  `;
+
+  container.querySelectorAll(".knockout-phase-tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      const selectedPhase = button.dataset.phase;
+
+      container.querySelectorAll(".knockout-phase-tab").forEach((tab) => {
+        tab.classList.toggle("active", tab === button);
+      });
+
+      container.querySelectorAll(".knockout-phase-panel").forEach((panel) => {
+        panel.hidden = panel.dataset.phasePanel !== selectedPhase;
+      });
+    });
+  });
+
+  return container;
+}
+
 export function renderContent(state, onMatchChange) {
   switch (state.currentView) {
     case "home":
@@ -577,6 +684,8 @@ export function renderContent(state, onMatchChange) {
       return renderGroups(state);
     case "matches":
       return renderMatches(state, onMatchChange, null, true);
+    case "knockout":
+      return renderKnockout();
     default:
       return renderHome(state);
   }

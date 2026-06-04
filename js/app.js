@@ -6,6 +6,7 @@ const VALID_VIEWS = new Set([
   "aitor",
   "groups",
   "matches",
+  "knockout",
 ]);
 
 function getSavedView() {
