@@ -610,6 +610,242 @@ function renderKnockoutMatch(match) {
   `;
 }
 
+const BRACKET_CARD_WIDTH = 220;
+const BRACKET_CARD_HEIGHT = 62;
+const BRACKET_COLUMN_GAP = 64;
+const BRACKET_ROW_GAP = 78;
+const BRACKET_HEADER_HEIGHT = 48;
+
+function getMainBracketRounds() {
+  return [
+    {
+      id: "round32",
+      label: "Dieciseisavos",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.phase === "round32"),
+    },
+    {
+      id: "round16",
+      label: "Octavos",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.phase === "round16"),
+    },
+    {
+      id: "quarterfinals",
+      label: "Cuartos",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.phase === "quarterfinals"),
+    },
+    {
+      id: "semifinals",
+      label: "Semifinales",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.phase === "semifinals"),
+    },
+    {
+      id: "final",
+      label: "Final",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.id === "KO-104"),
+    },
+  ];
+}
+
+function getPreviousMatchIds(match) {
+  return [match.homeSource, match.awaySource]
+    .filter((source) =>
+      source &&
+      (source.type === "winner" || source.type === "loser")
+    )
+    .map((source) => source.matchId);
+}
+
+function calculateBracketLayout() {
+  const rounds = getMainBracketRounds();
+  const positions = {};
+
+  // Dieciseisavos: posiciones regulares de arriba abajo
+  rounds[0].matches.forEach((match, index) => {
+    positions[match.id] = {
+      x: 0,
+      y: BRACKET_HEADER_HEIGHT + index * BRACKET_ROW_GAP,
+    };
+  });
+
+  // Rondas posteriores: cada partido se centra entre sus dos precedentes
+  rounds.slice(1).forEach((round, roundIndex) => {
+    const x =
+      (roundIndex + 1) *
+      (BRACKET_CARD_WIDTH + BRACKET_COLUMN_GAP);
+
+    round.matches.forEach((match, index) => {
+      const previousIds = getPreviousMatchIds(match);
+      const previousPositions = previousIds
+        .map((id) => positions[id])
+        .filter(Boolean);
+
+      const fallbackY =
+        BRACKET_HEADER_HEIGHT +
+        index * BRACKET_ROW_GAP * Math.pow(2, roundIndex + 1);
+
+      const y =
+        previousPositions.length > 0
+          ? previousPositions.reduce(
+              (acc, position) => acc + position.y,
+              0
+            ) / previousPositions.length
+          : fallbackY;
+
+      positions[match.id] = { x, y };
+    });
+  });
+
+  const width =
+    rounds.length * BRACKET_CARD_WIDTH +
+    (rounds.length - 1) * BRACKET_COLUMN_GAP;
+
+  const height =
+    Math.max(
+      ...Object.values(positions).map(
+        (position) => position.y + BRACKET_CARD_HEIGHT
+      )
+    ) + 16;
+
+  return { rounds, positions, width, height };
+}
+
+function renderBracketConnectors(layout) {
+  const paths = [];
+
+  layout.rounds.slice(1).forEach((round) => {
+    round.matches.forEach((targetMatch) => {
+      const target = layout.positions[targetMatch.id];
+      if (!target) return;
+
+      getPreviousMatchIds(targetMatch).forEach((previousId) => {
+        const source = layout.positions[previousId];
+        if (!source) return;
+
+        const x1 = source.x + BRACKET_CARD_WIDTH;
+        const y1 = source.y + BRACKET_CARD_HEIGHT / 2;
+
+        const x2 = target.x;
+        const y2 = target.y + BRACKET_CARD_HEIGHT / 2;
+
+        const middleX = x1 + (x2 - x1) / 2;
+
+        paths.push(`
+          <path
+            d="M ${x1} ${y1}
+               H ${middleX}
+               V ${y2}
+               H ${x2}"
+          />
+        `);
+      });
+    });
+  });
+
+  return `
+    <svg
+      class="full-bracket-connectors"
+      width="${layout.width}"
+      height="${layout.height}"
+      viewBox="0 0 ${layout.width} ${layout.height}"
+      aria-hidden="true"
+    >
+      ${paths.join("")}
+    </svg>
+  `;
+}
+
+function renderFullBracketCard(match, position) {
+  return `
+    <article
+      class="full-bracket-card"
+      style="
+        left: ${position.x}px;
+        top: ${position.y}px;
+        width: ${BRACKET_CARD_WIDTH}px;
+        min-height: ${BRACKET_CARD_HEIGHT}px;
+      "
+    >
+      <div class="full-bracket-card-title">
+        ${match.title ?? `Partido ${match.number}`}
+      </div>
+
+      <div class="full-bracket-team">
+        ${getKnockoutSourceLabel(match.homeSource)}
+      </div>
+
+      <div class="full-bracket-team">
+        ${getKnockoutSourceLabel(match.awaySource)}
+      </div>
+    </article>
+  `;
+}
+
+function renderFullBracket() {
+  const layout = calculateBracketLayout();
+
+  const headers = layout.rounds
+    .map((round, index) => {
+      const left =
+        index * (BRACKET_CARD_WIDTH + BRACKET_COLUMN_GAP);
+
+      return `
+        <div
+          class="full-bracket-header"
+          style="
+            left: ${left}px;
+            width: ${BRACKET_CARD_WIDTH}px;
+          "
+        >
+          ${round.label}
+        </div>
+      `;
+    })
+    .join("");
+
+  const cards = layout.rounds
+    .flatMap((round) => round.matches)
+    .map((match) =>
+      renderFullBracketCard(match, layout.positions[match.id])
+    )
+    .join("");
+
+  const thirdPlaceMatch =
+    KNOCKOUT_TEMPLATE.find((match) => match.id === "KO-103");
+
+  return `
+    <div class="card">
+      <h2>Cuadro completo</h2>
+      <p class="muted">
+        Desplázate horizontalmente para consultar todas las rondas.
+      </p>
+
+      <div class="full-bracket-scroll">
+        <div
+          class="full-bracket-board"
+          style="
+            width: ${layout.width}px;
+            height: ${layout.height}px;
+          "
+        >
+          ${renderBracketConnectors(layout)}
+          ${headers}
+          ${cards}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Tercer puesto</h2>
+
+      <div class="third-place-match">
+        <span>${getKnockoutSourceLabel(thirdPlaceMatch.homeSource)}</span>
+        <strong>vs</strong>
+        <span>${getKnockoutSourceLabel(thirdPlaceMatch.awaySource)}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderKnockout() {
   const container = document.createElement("div");
 
@@ -653,6 +889,8 @@ function renderKnockout() {
         </section>
       `
     ).join("")}
+
+    ${renderFullBracket()}
   `;
 
   container.querySelectorAll(".knockout-phase-tab").forEach((button) => {
