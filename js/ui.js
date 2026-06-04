@@ -4,6 +4,12 @@ function getTeamById(state, id) {
   return state.teams.find((t) => t.id === id);
 }
 
+function getSortedGroupEntries(groups) {
+  return Object.entries(groups).sort(([groupA], [groupB]) =>
+    groupA.localeCompare(groupB, "es", { numeric: true })
+  );
+}
+
 function renderFlag(team) {
   if (!team?.flagCode) {
     return `<span class="team-flag-placeholder" aria-hidden="true"></span>`;
@@ -161,7 +167,7 @@ function createEmptyStanding(team) {
 function calculateGroupStandings(state) {
   const standingsByGroup = {};
 
-  Object.entries(state.groups).forEach(([groupName, teamIds]) => {
+  getSortedGroupEntries(state.groups).forEach(([groupName, teamIds]) => {
     standingsByGroup[groupName] = {};
 
     teamIds.forEach((teamId) => {
@@ -409,7 +415,7 @@ function renderGroupsQuickView(state) {
   const wrapper = document.createElement("div");
   wrapper.className = "card";
 
-  const groupsHtml = Object.entries(state.groups)
+  const groupsHtml = getSortedGroupEntries(state.groups)
     .map(([groupName, teamIds]) => {
       const items = teamIds
         .map((id) => getTeamById(state, id))
@@ -472,7 +478,7 @@ function renderGroups(state) {
   `;
   container.appendChild(intro);
 
-  Object.entries(standingsByGroup).forEach(([groupName, standings]) => {
+  getSortedGroupEntries(standingsByGroup).forEach(([groupName, standings]) => {
     const card = document.createElement("div");
     card.className = "card";
 
