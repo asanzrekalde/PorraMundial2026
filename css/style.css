@@ -290,15 +290,51 @@ input[type="number"]{ width: 64px; }
 
 .match-row {
   display: grid;
-  grid-template-columns: 100px 1fr 64px 20px 64px 1fr;
+  grid-template-columns:
+    125px
+    minmax(0, 1fr)
+    56px
+    18px
+    56px
+    minmax(0, 1fr)
+    125px;
+
   gap: 10px;
   align-items: center;
-  padding: 10px 0;
+  padding: 12px 0;
   border-bottom: 1px solid #f0f4f8;
+  max-width: 100%;
 }
 
-.match-row:last-child {
-  border-bottom: none;
+/* Columna invisible para compensar el espacio ocupado por la fecha */
+.match-row::after {
+  content: "";
+}
+
+.match-row > * {
+  min-width: 0;
+}
+
+.match-team-home {
+  text-align: right;
+}
+
+.match-team-home .team-label {
+  justify-content: flex-end;
+}
+
+.match-team-away {
+  text-align: left;
+}
+
+.match-team-away .team-label {
+  justify-content: flex-start;
+}
+
+.match-row input[type="number"] {
+  width: 56px;
+  max-width: 100%;
+  text-align: center;
 }
 
 .match-date {
