@@ -1,5 +1,21 @@
 const TOURNAMENT_START = new Date("2026-06-11T15:00:00-04:00");
 
+const VALID_VIEWS = new Set([
+  "home",
+  "ane",
+  "aitor",
+  "groups",
+  "matches",
+]);
+
+function getSavedView() {
+  const savedView = localStorage.getItem("porra-current-view");
+
+  return VALID_VIEWS.has(savedView)
+    ? savedView
+    : "home";
+}
+
 function isResetAllowed() {
   return state.hasAccess && new Date() < TOURNAMENT_START;
 }
@@ -24,7 +40,7 @@ import {
 import { renderScoreboard, renderContent } from "./ui.js";
 
 let state = {
-  currentView: "home",
+  currentView: getSavedView(),,
   user: null,
   hasAccess: false,
   canEdit: false,
@@ -191,11 +207,17 @@ function attachStaticHandlers() {
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       state.currentView = tab.dataset.view;
+
+      localStorage.setItem(
+        "porra-current-view",
+        state.currentView
+      );
+
       renderApp();
 
       window.scrollTo({
         top: 0,
-        behavior: "smooth"
+        behavior: "smooth",
       });
     });
   });
