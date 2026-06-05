@@ -233,6 +233,151 @@ function calculateGroupStandings(state) {
   return result;
 }
 
+function isGroupFinished(state, groupName) {
+  const groupMatches = state.matches.filter(
+    (match) =>
+      (!match.phase || match.phase === "groups") &&
+      match.group === groupName
+  );
+
+  return (
+    groupMatches.length === 6 &&
+    groupMatches.every(
+      (match) =>
+        match.homeGoals != null &&
+        match.awayGoals != null
+    )
+  );
+}
+
+function getKnockoutTemplateById(matchId) {
+  return KNOCKOUT_TEMPLATE.find((match) => match.id === matchId);
+}
+
+function getStoredKnockoutResult(state, matchId) {
+  return state.knockoutResults?.[matchId] || {};
+}
+
+function resolveKnockoutMatchTeams(state, matchId, standingsByGroup) {
+  const match = getKnockoutTemplateById(matchId);
+
+  if (!match) {
+    return { homeTeam: null, awayTeam: null };
+  }
+
+  return {
+    homeTeam: resolveKnockoutSourceTeam(
+      state,
+      match.homeSource,
+      standingsByGroup
+    ),
+    awayTeam: resolveKnockoutSourceTeam(
+      state,
+      match.awaySource,
+      standingsByGroup
+    ),
+  };
+}
+
+function resolveKnockoutWinnerTeam(state, matchId, standingsByGroup) {
+  const { homeTeam, awayTeam } =
+    resolveKnockoutMatchTeams(state, matchId, standingsByGroup);
+
+  if (!homeTeam || !awayTeam) return null;
+
+  const result = getStoredKnockoutResult(state, matchId);
+
+  if (
+    result.winnerTeamId === homeTeam.id ||
+    result.winnerTeamId === awayTeam.id
+  ) {
+    return getTeamById(state, result.winnerTeamId);
+  }
+
+  if (
+    result.homeGoals == null ||
+    result.awayGoals == null
+  ) {
+    return null;
+  }
+
+  if (result.homeGoals > result.awayGoals) return homeTeam;
+  if (result.awayGoals > result.homeGoals) return awayTeam;
+
+  // Si empatan, necesitaremos indicar manualmente quién pasa
+  // por prórroga o penaltis.
+  return null;
+}
+
+function resolveKnockoutLoserTeam(state, matchId, standingsByGroup) {
+  const { homeTeam, awayTeam } =
+    resolveKnockoutMatchTeams(state, matchId, standingsByGroup);
+
+  const winner =
+    resolveKnockoutWinnerTeam(state, matchId, standingsByGroup);
+
+  if (!homeTeam || !awayTeam || !winner) return null;
+
+  return winner.id === homeTeam.id ? awayTeam : homeTeam;
+}
+
+function resolveKnockoutSourceTeam(state, source, standingsByGroup) {
+  if (!source) return null;
+
+  if (source.type === "group") {
+    if (!isGroupFinished(state, source.group)) return null;
+
+    return standingsByGroup[source.group]?.[
+      source.position - 1
+    ]?.team || null;
+  }
+
+  if (source.type === "third") {
+    // Se conectará con la matriz oficial del Anexo C.
+    return null;
+  }
+
+  if (source.type === "winner") {
+    return resolveKnockoutWinnerTeam(
+      state,
+      source.matchId,
+      standingsByGroup
+    );
+  }
+
+  if (source.type === "loser") {
+    return resolveKnockoutLoserTeam(
+      state,
+      source.matchId,
+      standingsByGroup
+    );
+  }
+
+  return null;
+}
+
+function renderResolvedKnockoutTeam(
+  state,
+  source,
+  standingsByGroup
+) {
+  const team = resolveKnockoutSourceTeam(
+    state,
+    source,
+    standingsByGroup
+  );
+
+  if (team) {
+    return renderTeamLabel(team);
+  }
+
+  return `
+    <span class="muted">
+      ${getKnockoutSourceLabel(source)}
+    </span>
+  `;
+}
+
 function compareStandings(a, b) {
   // Simplificado:
   // 1) puntos
@@ -590,7 +735,7 @@ function getKnockoutSourceLabel(source) {
   return "Pendiente";
 }
 
-function renderKnockoutMatch(match) {
+function renderKnockoutMatch(state, match, standingsByGroup) {
   return `
     <div class="knockout-match">
       <div class="knockout-match-number">
@@ -598,13 +743,21 @@ function renderKnockoutMatch(match) {
       </div>
 
       <div class="knockout-team">
-        ${getKnockoutSourceLabel(match.homeSource)}
+        ${renderResolvedKnockoutTeam(
+          state,
+          match.homeSource,
+          standingsByGroup
+        )}
       </div>
 
       <div class="knockout-versus">vs</div>
 
       <div class="knockout-team">
-        ${getKnockoutSourceLabel(match.awaySource)}
+        ${renderResolvedKnockoutTeam(
+          state,
+          match.awaySource,
+          standingsByGroup
+        )}
       </div>
     </div>
   `;
@@ -754,7 +907,12 @@ function renderBracketConnectors(layout) {
   `;
 }
 
-function renderFullBracketCard(match, position) {
+function renderFullBracketCard(
+  state,
+  match,
+  position,
+  standingsByGroup
+) {
   return `
     <article
       class="full-bracket-card"
@@ -770,17 +928,25 @@ function renderFullBracketCard(match, position) {
       </div>
 
       <div class="full-bracket-team">
-        ${getKnockoutSourceLabel(match.homeSource)}
+        ${renderResolvedKnockoutTeam(
+          state,
+          match.homeSource,
+          standingsByGroup
+        )}
       </div>
 
       <div class="full-bracket-team">
-        ${getKnockoutSourceLabel(match.awaySource)}
+        ${renderResolvedKnockoutTeam(
+          state,
+          match.awaySource,
+          standingsByGroup
+        )}
       </div>
     </article>
   `;
 }
 
-function renderFullBracket() {
+function renderFullBracket(state, standingsByGroup) {
   const layout = calculateBracketLayout();
 
   const headers = layout.rounds
@@ -805,7 +971,12 @@ function renderFullBracket() {
   const cards = layout.rounds
     .flatMap((round) => round.matches)
     .map((match) =>
-      renderFullBracketCard(match, layout.positions[match.id])
+      renderFullBracketCard(
+        state,
+        match,
+        layout.positions[match.id],
+        standingsByGroup
+      )
     )
     .join("");
 
@@ -816,7 +987,8 @@ function renderFullBracket() {
     <div class="card">
       <h2>Cuadro completo</h2>
       <p class="muted">
-        Desplázate horizontalmente para consultar todas las rondas.
+        Se rellenará automáticamente conforme terminen
+        los grupos y las rondas eliminatorias.
       </p>
 
       <div class="full-bracket-scroll">
@@ -838,15 +1010,31 @@ function renderFullBracket() {
       <h2>Tercer puesto</h2>
 
       <div class="third-place-match">
-        <span>${getKnockoutSourceLabel(thirdPlaceMatch.homeSource)}</span>
+        <span>
+          ${renderResolvedKnockoutTeam(
+            state,
+            thirdPlaceMatch.homeSource,
+            standingsByGroup
+          )}
+        </span>
+
         <strong>vs</strong>
-        <span>${getKnockoutSourceLabel(thirdPlaceMatch.awaySource)}</span>
+
+        <span>
+          ${renderResolvedKnockoutTeam(
+            state,
+            thirdPlaceMatch.awaySource,
+            standingsByGroup
+          )}
+        </span>
       </div>
     </div>
   `;
 }
 
-function renderKnockout() {
+function renderKnockout(state) {
+  const standingsByGroup =
+  calculateGroupStandings(state);
   const container = document.createElement("div");
 
   container.innerHTML = `
@@ -883,14 +1071,20 @@ function renderKnockout() {
           <div class="knockout-list">
             ${KNOCKOUT_TEMPLATE
               .filter((match) => match.phase === phase.id)
-              .map(renderKnockoutMatch)
+              .map((match) =>
+                renderKnockoutMatch(
+                  state,
+                  match,
+                  standingsByGroup
+                )
+              )
               .join("")}
           </div>
         </section>
       `
     ).join("")}
 
-    ${renderFullBracket()}
+    ${renderFullBracket(state, standingsByGroup)}
   `;
 
   container.querySelectorAll(".knockout-phase-tab").forEach((button) => {
@@ -923,7 +1117,7 @@ export function renderContent(state, onMatchChange) {
     case "matches":
       return renderMatches(state, onMatchChange, null, true);
     case "knockout":
-      return renderKnockout();
+      return renderKnockout(state);
     default:
       return renderHome(state);
   }

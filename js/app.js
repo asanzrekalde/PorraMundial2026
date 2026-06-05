@@ -50,6 +50,8 @@ let state = {
   groups: {},
   schedule: {},
   matches: [],
+  knockoutResults: {},
+  thirdAssignments: {},
 };
 
 let unsubscribeRemote = null;
@@ -238,6 +240,8 @@ async function initRemoteForUser(user) {
   state.groups = {};
   state.schedule = {};
   state.matches = [];
+  state.knockoutResults = {};
+  state.thirdAssignments = {};
 
   if (!user) {
     state.authChecked = true;
@@ -258,6 +262,9 @@ async function initRemoteForUser(user) {
     const baseMatches = buildMatchesFromConfig(state.groups, state.schedule);
 
     const remote = await loadRemoteState();
+    state.knockoutResults = remote?.knockoutResults || {};
+    state.thirdAssignments = remote?.thirdAssignments || {};
+
     if (remote?.matches) {
       state.matches = mergeRemoteMatches(baseMatches, remote.matches);
     } else {
@@ -269,6 +276,9 @@ async function initRemoteForUser(user) {
     state.canEdit = true;
 
     unsubscribeRemote = subscribeRemoteState((remoteData) => {
+      state.knockoutResults = remoteData?.knockoutResults || {};
+      state.thirdAssignments = remoteData?.thirdAssignments || {};
+      
       const freshBaseMatches = buildMatchesFromConfig(state.groups, state.schedule);
       state.matches = mergeRemoteMatches(freshBaseMatches, remoteData?.matches || []);
       renderApp();

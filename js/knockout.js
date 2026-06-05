@@ -123,22 +123,22 @@ export const KNOCKOUT_TEMPLATE = [
     awaySource: { type: "group", position: 2, group: "G" },
   },
 
-  // =========================
+    // =========================
   // OCTAVOS: 89 - 96
   // =========================
   {
     id: "KO-89",
     number: 89,
     phase: "round16",
-    homeSource: { type: "winner", matchId: "KO-73" },
-    awaySource: { type: "winner", matchId: "KO-75" },
+    homeSource: { type: "winner", matchId: "KO-74" },
+    awaySource: { type: "winner", matchId: "KO-77" },
   },
   {
     id: "KO-90",
     number: 90,
     phase: "round16",
-    homeSource: { type: "winner", matchId: "KO-74" },
-    awaySource: { type: "winner", matchId: "KO-77" },
+    homeSource: { type: "winner", matchId: "KO-73" },
+    awaySource: { type: "winner", matchId: "KO-75" },
   },
   {
     id: "KO-91",

@@ -94,6 +94,8 @@ export async function saveRemoteState(state) {
     sharedDocRef,
     {
       matches: state.matches,
+      knockoutResults: state.knockoutResults || {},
+      thirdAssignments: state.thirdAssignments || {},
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email ?? null,
     },
