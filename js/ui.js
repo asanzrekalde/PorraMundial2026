@@ -3,6 +3,22 @@ import {
   KNOCKOUT_TEMPLATE,
 } from "./knockout.js";
 
+const VALID_KNOCKOUT_PHASES = new Set([
+  "round32",
+  "round16",
+  "quarterfinals",
+  "semifinals",
+  "finals",
+]);
+
+let activeKnockoutPhase =
+  localStorage.getItem("porra-knockout-phase") ||
+  "round32";
+
+if (!VALID_KNOCKOUT_PHASES.has(activeKnockoutPhase)) {
+  activeKnockoutPhase = "round32";
+}
+
 let chartInstance = null;
 
 function getTeamById(state, id) {
@@ -130,26 +146,72 @@ function getMatchPointsForTeam(match, teamId) {
   return 0;
 }
 
-export function calculateTeamPoints(state, teamId) {
-  return state.matches.reduce((acc, match) => {
-    return acc + getMatchPointsForTeam(match, teamId);
+function calculateGroupTeamPoints(state, teamId) {
+  return state.matches
+    .filter(isGroupMatch)
+    .reduce((points, match) => {
+      if (
+        match.homeGoals == null ||
+        match.awayGoals == null
+      ) {
+        return points;
+      }
+
+      const isHome = match.home === teamId;
+      const isAway = match.away === teamId;
+
+      if (!isHome && !isAway) return points;
+
+      const goalsFor = isHome
+        ? match.homeGoals
+        : match.awayGoals;
+
+      const goalsAgainst = isHome
+        ? match.awayGoals
+        : match.homeGoals;
+
+      if (goalsFor > goalsAgainst) return points + 3;
+      if (goalsFor === goalsAgainst) return points + 1;
+
+      return points;
+    }, 0);
+}
+
+function calculateKnockoutTeamPoints(state, teamId) {
+  const standingsByGroup =
+    calculateGroupStandings(state);
+
+  return KNOCKOUT_TEMPLATE.reduce((points, match) => {
+    const winner = resolveKnockoutWinnerTeam(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
+    return winner?.id === teamId
+      ? points + 3
+      : points;
   }, 0);
 }
 
+export function calculateTeamPoints(state, teamId) {
+  return (
+    calculateGroupTeamPoints(state, teamId) +
+    calculateKnockoutTeamPoints(state, teamId)
+  );
+}
+
 export function calculatePoints(state) {
-  const points = { ANE: 0, AITOR: 0 };
+  const points = {
+    ANE: 0,
+    AITOR: 0,
+  };
 
-  state.matches.forEach((match) => {
-    const home = getTeamById(state, match.home);
-    const away = getTeamById(state, match.away);
+  state.teams.forEach((team) => {
+    if (!team.owner) return;
 
-    if (home?.owner) {
-      points[home.owner] += getMatchPointsForTeam(match, home.id);
-    }
-
-    if (away?.owner) {
-      points[away.owner] += getMatchPointsForTeam(match, away.id);
-    }
+    points[team.owner] +=
+      calculateTeamPoints(state, team.id);
   });
 
   return points;
@@ -735,30 +797,238 @@ function getKnockoutSourceLabel(source) {
   return "Pendiente";
 }
 
-function renderKnockoutMatch(state, match, standingsByGroup) {
+function getKnockoutEditorData(
+  state,
+  match,
+  standingsByGroup
+) {
+  const { homeTeam, awayTeam } =
+    resolveKnockoutMatchTeams(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
+  const result =
+    getStoredKnockoutResult(state, match.id);
+
+  return {
+    homeTeam,
+    awayTeam,
+    result,
+  };
+}
+
+function renderKnockoutEditor(
+  state,
+  match,
+  standingsByGroup
+) {
+  const {
+    homeTeam,
+    awayTeam,
+    result,
+  } = getKnockoutEditorData(
+    state,
+    match,
+    standingsByGroup
+  );
+
+  if (!homeTeam || !awayTeam) {
+    return `
+      <div class="knockout-editor knockout-editor-pending">
+        <div>
+          ${renderResolvedKnockoutTeam(
+            state,
+            match.homeSource,
+            standingsByGroup
+          )}
+        </div>
+
+        <span class="knockout-versus">vs</span>
+
+        <div>
+          ${renderResolvedKnockoutTeam(
+            state,
+            match.awaySource,
+            standingsByGroup
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  const homeGoals = result.homeGoals ?? "";
+  const awayGoals = result.awayGoals ?? "";
+
+  const hasCompleteScore =
+    result.homeGoals != null &&
+    result.awayGoals != null;
+
+  const isTie =
+    hasCompleteScore &&
+    result.homeGoals === result.awayGoals;
+
+  const selectedWinner =
+    result.winnerTeamId ?? "";
+
+  return `
+    <div
+      class="knockout-editor"
+      data-ko-match-id="${match.id}"
+      data-home-team-id="${homeTeam.id}"
+      data-away-team-id="${awayTeam.id}"
+    >
+      <div class="knockout-editor-team knockout-editor-home">
+        ${renderTeamLabel(homeTeam)}
+      </div>
+
+      <input
+        class="knockout-goals knockout-home-goals"
+        type="number"
+        min="0"
+        inputmode="numeric"
+        value="${homeGoals}"
+        aria-label="Goles ${homeTeam.name}"
+      />
+
+      <span class="knockout-score-separator">-</span>
+
+      <input
+        class="knockout-goals knockout-away-goals"
+        type="number"
+        min="0"
+        inputmode="numeric"
+        value="${awayGoals}"
+        aria-label="Goles ${awayTeam.name}"
+      />
+
+      <div class="knockout-editor-team knockout-editor-away">
+        ${renderTeamLabel(awayTeam)}
+      </div>
+
+      ${
+        isTie
+          ? `
+            <label class="knockout-winner-box">
+              <span>Clasificado:</span>
+
+              <select class="knockout-winner-select">
+                <option value="">
+                  Selecciona quién pasa
+                </option>
+
+                <option
+                  value="${homeTeam.id}"
+                  ${
+                    selectedWinner === homeTeam.id
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  ${homeTeam.name}
+                </option>
+
+                <option
+                  value="${awayTeam.id}"
+                  ${
+                    selectedWinner === awayTeam.id
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  ${awayTeam.name}
+                </option>
+              </select>
+            </label>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function wireKnockoutEditors(
+  container,
+  onKnockoutChange
+) {
+  container
+    .querySelectorAll("[data-ko-match-id]")
+    .forEach((row) => {
+      const homeInput =
+        row.querySelector(".knockout-home-goals");
+
+      const awayInput =
+        row.querySelector(".knockout-away-goals");
+
+      const winnerSelect =
+        row.querySelector(".knockout-winner-select");
+
+      const pushResult = () => {
+        const homeGoals =
+          homeInput.value === ""
+            ? null
+            : Number(homeInput.value);
+
+        const awayGoals =
+          awayInput.value === ""
+            ? null
+            : Number(awayInput.value);
+
+        let winnerTeamId = null;
+
+        if (
+          Number.isInteger(homeGoals) &&
+          Number.isInteger(awayGoals)
+        ) {
+          if (homeGoals > awayGoals) {
+            winnerTeamId =
+              row.dataset.homeTeamId;
+          } else if (awayGoals > homeGoals) {
+            winnerTeamId =
+              row.dataset.awayTeamId;
+          } else {
+            winnerTeamId =
+              winnerSelect?.value || null;
+          }
+        }
+
+        onKnockoutChange(
+          row.dataset.koMatchId,
+          {
+            homeGoals,
+            awayGoals,
+            winnerTeamId,
+          }
+        );
+      };
+
+      homeInput.addEventListener("change", pushResult);
+      awayInput.addEventListener("change", pushResult);
+
+      winnerSelect?.addEventListener(
+        "change",
+        pushResult
+      );
+    });
+}
+
+function renderKnockoutMatch(
+  state,
+  match,
+  standingsByGroup
+) {
   return `
     <div class="knockout-match">
       <div class="knockout-match-number">
         ${match.title ?? `Partido ${match.number}`}
       </div>
 
-      <div class="knockout-team">
-        ${renderResolvedKnockoutTeam(
-          state,
-          match.homeSource,
-          standingsByGroup
-        )}
-      </div>
-
-      <div class="knockout-versus">vs</div>
-
-      <div class="knockout-team">
-        ${renderResolvedKnockoutTeam(
-          state,
-          match.awaySource,
-          standingsByGroup
-        )}
-      </div>
+      ${renderKnockoutEditor(
+        state,
+        match,
+        standingsByGroup
+      )}
     </div>
   `;
 }
@@ -907,12 +1177,60 @@ function renderBracketConnectors(layout) {
   `;
 }
 
+function renderFullBracketTeamLine(
+  state,
+  source,
+  team,
+  score,
+  winnerTeamId
+) {
+  const winnerClass =
+    team && team.id === winnerTeamId
+      ? "winner"
+      : "";
+
+  return `
+    <div class="full-bracket-team ${winnerClass}">
+      <span>
+        ${
+          team
+            ? renderTeamLabel(team)
+            : `
+              <span class="muted">
+                ${getKnockoutSourceLabel(source)}
+              </span>
+            `
+        }
+      </span>
+
+      <strong>${score ?? "-"}</strong>
+    </div>
+  `;
+}
+
 function renderFullBracketCard(
   state,
   match,
   position,
   standingsByGroup
 ) {
+  const { homeTeam, awayTeam } =
+    resolveKnockoutMatchTeams(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
+  const result =
+    getStoredKnockoutResult(state, match.id);
+
+  const winner =
+    resolveKnockoutWinnerTeam(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
   return `
     <article
       class="full-bracket-card"
@@ -927,21 +1245,21 @@ function renderFullBracketCard(
         ${match.title ?? `Partido ${match.number}`}
       </div>
 
-      <div class="full-bracket-team">
-        ${renderResolvedKnockoutTeam(
-          state,
-          match.homeSource,
-          standingsByGroup
-        )}
-      </div>
+      ${renderFullBracketTeamLine(
+        state,
+        match.homeSource,
+        homeTeam,
+        result.homeGoals,
+        winner?.id
+      )}
 
-      <div class="full-bracket-team">
-        ${renderResolvedKnockoutTeam(
-          state,
-          match.awaySource,
-          standingsByGroup
-        )}
-      </div>
+      ${renderFullBracketTeamLine(
+        state,
+        match.awaySource,
+        awayTeam,
+        result.awayGoals,
+        winner?.id
+      )}
     </article>
   `;
 }
@@ -1032,7 +1350,7 @@ function renderFullBracket(state, standingsByGroup) {
   `;
 }
 
-function renderKnockout(state) {
+function renderKnockout(state, onKnockoutChange) {
   const standingsByGroup =
   calculateGroupStandings(state);
   const container = document.createElement("div");
@@ -1049,7 +1367,11 @@ function renderKnockout(state) {
         ${KNOCKOUT_PHASES.map(
           (phase, index) => `
             <button
-              class="knockout-phase-tab ${index === 0 ? "active" : ""}"
+              class="knockout-phase-tab ${
+                phase.id === activeKnockoutPhase
+                  ? "active"
+                  : ""
+              }"
               data-phase="${phase.id}"
             >
               ${phase.label}
@@ -1064,7 +1386,11 @@ function renderKnockout(state) {
         <section
           class="card knockout-phase-panel"
           data-phase-panel="${phase.id}"
-          ${index === 0 ? "" : 'hidden'}
+          ${
+            phase.id === activeKnockoutPhase
+              ? ""
+              : "hidden"
+          }
         >
           <h2>${phase.label}</h2>
 
@@ -1091,6 +1417,13 @@ function renderKnockout(state) {
     button.addEventListener("click", () => {
       const selectedPhase = button.dataset.phase;
 
+      activeKnockoutPhase = selectedPhase;
+
+      localStorage.setItem(
+        "porra-knockout-phase",
+        activeKnockoutPhase
+      );
+
       container.querySelectorAll(".knockout-phase-tab").forEach((tab) => {
         tab.classList.toggle("active", tab === button);
       });
@@ -1101,10 +1434,15 @@ function renderKnockout(state) {
     });
   });
 
+  wireKnockoutEditors(
+    container,
+    onKnockoutChange
+  );
+
   return container;
 }
 
-export function renderContent(state, onMatchChange) {
+export function renderContent(state, onMatchChange, onKnockoutChange) {
   switch (state.currentView) {
     case "home":
       return renderHome(state);
@@ -1117,7 +1455,7 @@ export function renderContent(state, onMatchChange) {
     case "matches":
       return renderMatches(state, onMatchChange, null, true);
     case "knockout":
-      return renderKnockout(state);
+      return renderKnockout(state, onKnockoutChange);
     default:
       return renderHome(state);
   }

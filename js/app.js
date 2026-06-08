@@ -158,7 +158,32 @@ function renderApp() {
   setActiveTab(state.currentView);
 
   view.innerHTML = "";
-  view.appendChild(renderContent(state, handleMatchChange));
+  view.appendChild(
+    renderContent(
+      state,
+      handleMatchChange,
+      handleKnockoutChange
+    )
+  );
+}
+
+function hasAnyResults() {
+  const hasGroupResults = state.matches.some(
+    (match) =>
+      match.homeGoals != null ||
+      match.awayGoals != null
+  );
+
+  const hasKnockoutResults = Object.values(
+    state.knockoutResults || {}
+  ).some(
+    (result) =>
+      result.homeGoals != null ||
+      result.awayGoals != null ||
+      result.winnerTeamId != null
+  );
+
+  return hasGroupResults || hasKnockoutResults;
 }
 
 async function handleMatchChange(matchId, homeGoals, awayGoals) {
@@ -180,6 +205,39 @@ async function handleMatchChange(matchId, homeGoals, awayGoals) {
   }
 }
 
+async function handleKnockoutChange(matchId, nextResult) {
+  if (!state.canEdit) return;
+
+  const cleanGoal = (value) =>
+    Number.isInteger(value) && value >= 0
+      ? value
+      : null;
+
+  const cleanResult = {
+    homeGoals: cleanGoal(nextResult.homeGoals),
+    awayGoals: cleanGoal(nextResult.awayGoals),
+    winnerTeamId:
+      typeof nextResult.winnerTeamId === "string" &&
+      nextResult.winnerTeamId.length > 0
+        ? nextResult.winnerTeamId
+        : null,
+  };
+
+  state.knockoutResults = {
+    ...(state.knockoutResults || {}),
+    [matchId]: cleanResult,
+  };
+
+  renderApp();
+
+  try {
+    await saveRemoteState(state);
+  } catch (error) {
+    console.error("Error guardando resultado KO:", error);
+    alert("No se pudo guardar el resultado de la eliminatoria.");
+  }
+}
+
 async function handleReset() {
   if (!state.canEdit) return;
 
@@ -190,6 +248,9 @@ async function handleReset() {
     homeGoals: null,
     awayGoals: null,
   }));
+
+  state.knockoutResults = {};
+  state.thirdAssignments = {};
 
   renderApp();
 
