@@ -40,6 +40,8 @@ import {
 
 import { renderScoreboard, renderContent } from "./ui.js";
 
+const RESET_ENABLED = false;
+
 let state = {
   currentView: getSavedView(),
   user: null,
@@ -89,13 +91,12 @@ function renderAuthBox() {
   const resetBtn = document.getElementById("reset-btn");
 
   if (resetBtn) {
-    const resetAllowed = isResetAllowed();
+    resetBtn.style.display =
+      RESET_ENABLED && state.hasAccess
+        ? "inline-block"
+        : "none";
 
-    resetBtn.style.display = state.hasAccess ? "inline-block" : "none";
-    resetBtn.disabled = !resetAllowed;
-    resetBtn.title = resetAllowed
-      ? "Resetear resultados"
-      : "Reset desactivado desde el inicio del Mundial";
+    resetBtn.disabled = !RESET_ENABLED;
   }
 
 }
@@ -266,6 +267,10 @@ async function handleThirdQualifiedGroupsChange(groups) {
 }
 
 async function handleReset() {
+  if (!RESET_ENABLED) {
+    console.warn("Reset desactivado.");
+    return;
+  }
   if (!state.canEdit) return;
 
   if (!confirm("¿Seguro que quieres resetear todos los resultados?")) return;
