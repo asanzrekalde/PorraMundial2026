@@ -22,7 +22,7 @@ export const KNOCKOUT_TEMPLATE = [
     number: 74,
     phase: "round32",
     homeSource: { type: "group", position: 1, group: "E" },
-    awaySource: { type: "third", candidates: ["A", "B", "C", "D", "F"] },
+    awaySource: { type: "third", winnerSlot: "1E", candidates: ["A", "B", "C", "D", "F"] },
   },
   {
     id: "KO-75",
@@ -43,7 +43,7 @@ export const KNOCKOUT_TEMPLATE = [
     number: 77,
     phase: "round32",
     homeSource: { type: "group", position: 1, group: "I" },
-    awaySource: { type: "third", candidates: ["C", "D", "F", "G", "H"] },
+    awaySource: { type: "third", winnerSlot: "1I", candidates: ["C", "D", "F", "G", "H"] },
   },
   {
     id: "KO-78",
@@ -57,28 +57,28 @@ export const KNOCKOUT_TEMPLATE = [
     number: 79,
     phase: "round32",
     homeSource: { type: "group", position: 1, group: "A" },
-    awaySource: { type: "third", candidates: ["C", "E", "F", "H", "I"] },
+    awaySource: { type: "third",  winnerSlot: "1A", candidates: ["C", "E", "F", "H", "I"] },
   },
   {
     id: "KO-80",
     number: 80,
     phase: "round32",
     homeSource: { type: "group", position: 1, group: "L" },
-    awaySource: { type: "third", candidates: ["E", "H", "I", "J", "K"] },
+    awaySource: { type: "third",  winnerSlot: "1L", candidates: ["E", "H", "I", "J", "K"] },
   },
   {
     id: "KO-81",
     number: 81,
     phase: "round32",
     homeSource: { type: "group", position: 1, group: "D" },
-    awaySource: { type: "third", candidates: ["B", "E", "F", "I", "J"] },
+    awaySource: { type: "third",  winnerSlot: "1D", candidates: ["B", "E", "F", "I", "J"] },
   },
   {
     id: "KO-82",
     number: 82,
     phase: "round32",
     homeSource: { type: "group", position: 1, group: "G" },
-    awaySource: { type: "third", candidates: ["A", "E", "H", "I", "J"] },
+    awaySource: { type: "third",  winnerSlot: "1G", candidates: ["A", "E", "H", "I", "J"] },
   },
   {
     id: "KO-83",
@@ -99,7 +99,7 @@ export const KNOCKOUT_TEMPLATE = [
     number: 85,
     phase: "round32",
     homeSource: { type: "group", position: 1, group: "B" },
-    awaySource: { type: "third", candidates: ["E", "F", "G", "I", "J"] },
+    awaySource: { type: "third",  winnerSlot: "1B", candidates: ["E", "F", "G", "I", "J"] },
   },
   {
     id: "KO-86",
@@ -113,7 +113,7 @@ export const KNOCKOUT_TEMPLATE = [
     number: 87,
     phase: "round32",
     homeSource: { type: "group", position: 1, group: "K" },
-    awaySource: { type: "third", candidates: ["D", "E", "I", "J", "L"] },
+    awaySource: { type: "third",  winnerSlot: "1K", candidates: ["D", "E", "I", "J", "L"] },
   },
   {
     id: "KO-88",

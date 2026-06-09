@@ -96,6 +96,8 @@ export async function saveRemoteState(state) {
       matches: state.matches,
       knockoutResults: state.knockoutResults || {},
       thirdAssignments: state.thirdAssignments || {},
+      thirdQualifiedGroupsOverride:
+        state.thirdQualifiedGroupsOverride || [],
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email ?? null,
     },

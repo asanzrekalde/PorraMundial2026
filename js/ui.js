@@ -3,6 +3,11 @@ import {
   KNOCKOUT_TEMPLATE,
 } from "./knockout.js";
 
+import {
+  getThirdPlaceAssignment,
+  THIRD_PLACE_WINNER_SLOTS,
+} from "./third-place-map.js";
+
 const VALID_KNOCKOUT_PHASES = new Set([
   "round32",
   "round16",
@@ -395,8 +400,66 @@ function resolveKnockoutSourceTeam(state, source, standingsByGroup) {
   }
 
   if (source.type === "third") {
-    // Se conectará con la matriz oficial del Anexo C.
-    return null;
+    const { assignments } =
+      getEffectiveThirdAssignments(state);
+
+    const rawThirdGroup =
+      assignments?.[source.winnerSlot];
+
+    /*
+    * Acepta tanto "E" como "3E".
+    * El mapa debería devolver solo la letra,
+    * pero así evitamos que un formato inesperado
+    * impida resolver el cruce.
+    */
+    const thirdGroup =
+      typeof rawThirdGroup === "string"
+        ? rawThirdGroup
+            .replace(/^3/i, "")
+            .trim()
+            .toUpperCase()
+        : null;
+
+    if (!thirdGroup) {
+      console.warn(
+        "No se encontró grupo para el tercero:",
+        {
+          winnerSlot: source.winnerSlot,
+          assignments,
+        }
+      );
+
+      return null;
+    }
+
+    if (!isGroupFinished(state, thirdGroup)) {
+      console.warn(
+        "El grupo asignado todavía no figura como finalizado:",
+        thirdGroup
+      );
+
+      return null;
+    }
+
+    const thirdTeam =
+      standingsByGroup?.[thirdGroup]?.[2]?.team;
+
+    if (!thirdTeam) {
+      console.warn(
+        "No se encontró el tercer clasificado del grupo:",
+        {
+          thirdGroup,
+          availableGroups:
+            Object.keys(standingsByGroup || {}),
+          standings:
+            standingsByGroup?.[thirdGroup],
+        }
+      );
+
+      return null;
+    }
+
+    return thirdTeam;
   }
 
   if (source.type === "winner") {
@@ -440,6 +503,260 @@ function renderResolvedKnockoutTeam(
   `;
 }
 
+function renderManualThirdSelectionForm(state, thirds) {
+  const savedGroups = new Set(
+    state.thirdQualifiedGroupsOverride || []
+  );
+
+  /*
+   * Como propuesta inicial marcamos:
+   * - la selección guardada, si existe;
+   * - o los ocho primeros según los datos disponibles.
+   *
+   * En caso de empate oficial, revisa manualmente
+   * cuál debe entrar según tarjetas o ranking FIFA.
+   */
+  const defaultGroups =
+    savedGroups.size > 0
+      ? savedGroups
+      : new Set(
+          thirds
+            .slice(0, 8)
+            .map((third) => third.group)
+        );
+
+  const rows = thirds
+    .map((third, index) => {
+      const checked = defaultGroups.has(third.group)
+        ? "checked"
+        : "";
+
+      return `
+        <label class="third-override-row">
+          <input
+            type="checkbox"
+            data-third-group="${third.group}"
+            ${checked}
+          />
+
+          <span class="third-override-position">
+            ${index + 1}.
+          </span>
+
+          <span class="third-override-team">
+            ${renderTeamLabel(third.team)}
+          </span>
+
+          <span class="pill">
+            Grupo ${third.group}
+          </span>
+
+          <span class="third-override-stats">
+            ${third.pts} pts · DG ${third.dg} · GF ${third.gf}
+          </span>
+        </label>
+      `;
+    })
+    .join("");
+
+  return `
+    <div
+      class="third-override-form"
+      data-third-override-form
+    >
+      <p>
+        Selecciona exactamente los ocho terceros que
+        pasan de ronda según el criterio oficial.
+      </p>
+
+      <div class="third-override-counter">
+        Seleccionados:
+        <strong data-third-selected-count>0</strong>
+        / 8
+      </div>
+
+      <div class="third-override-list">
+        ${rows}
+      </div>
+
+      <button
+        class="btn primary"
+        type="button"
+        data-save-third-override
+      >
+        Guardar selección manual
+      </button>
+    </div>
+  `;
+}
+
+function renderThirdPlaceResolutionStatus(state) {
+  const {
+    resolution,
+    assignments,
+    isComplete,
+  } = getEffectiveThirdAssignments(state);
+
+  if (isComplete) {
+    const mode =
+      resolution.status === "ready"
+        ? "automáticamente"
+        : "mediante desempate manual";
+
+    return `
+      <div class="third-map-status third-map-status-ready">
+        <strong>
+          Cruces de mejores terceros resueltos ${mode}
+        </strong>
+
+        <div class="third-map-pills">
+          ${THIRD_PLACE_WINNER_SLOTS
+            .map(
+              (winnerSlot) => `
+                <span class="pill">
+                  ${winnerSlot} → 3.º ${assignments[winnerSlot]}
+                </span>
+              `
+            )
+            .join("")}
+        </div>
+
+        ${
+          resolution.status === "manual"
+            ? `
+              <button
+                class="btn"
+                type="button"
+                data-clear-third-override
+              >
+                Borrar desempate manual
+              </button>
+            `
+            : ""
+        }
+      </div>
+    `;
+  }
+
+  if (resolution.status === "pending") {
+    return `
+      <div class="third-map-status">
+        <strong>
+          Cruces con mejores terceros pendientes
+        </strong>
+
+        <p>
+          Se rellenarán automáticamente cuando terminen
+          los doce grupos.
+        </p>
+      </div>
+    `;
+  }
+
+  if (
+    resolution.status ===
+    "needs-official-tiebreak"
+  ) {
+    return `
+      <div class="third-map-status third-map-status-warning">
+        <strong>
+          Desempate oficial necesario
+        </strong>
+
+        <p>
+          ${resolution.message}
+        </p>
+
+        ${renderManualThirdSelectionForm(
+          state,
+          resolution.thirds
+        )}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="third-map-status third-map-status-error">
+      <strong>
+        No se pudieron resolver los mejores terceros
+      </strong>
+
+      <p>
+        ${resolution.message ?? "Error desconocido"}
+      </p>
+    </div>
+  `;
+}
+
+function wireThirdPlaceOverrideForm(
+  container,
+  onThirdQualifiedGroupsChange
+) {
+  const form = container.querySelector(
+    "[data-third-override-form]"
+  );
+
+  const clearButton = container.querySelector(
+    "[data-clear-third-override]"
+  );
+
+  clearButton?.addEventListener("click", () => {
+    onThirdQualifiedGroupsChange([]);
+  });
+
+  if (!form) return;
+
+  const checkboxes = [
+    ...form.querySelectorAll(
+      "input[data-third-group]"
+    ),
+  ];
+
+  const counter = form.querySelector(
+    "[data-third-selected-count]"
+  );
+
+  const updateCounter = () => {
+    const selected = checkboxes.filter(
+      (checkbox) => checkbox.checked
+    );
+
+    counter.textContent = selected.length;
+  };
+
+  checkboxes.forEach((checkbox) => {
+    checkbox.addEventListener(
+      "change",
+      updateCounter
+    );
+  });
+
+  updateCounter();
+
+  form
+    .querySelector("[data-save-third-override]")
+    .addEventListener("click", () => {
+      const selectedGroups = checkboxes
+        .filter((checkbox) => checkbox.checked)
+        .map(
+          (checkbox) =>
+            checkbox.dataset.thirdGroup
+        );
+
+      if (selectedGroups.length !== 8) {
+        alert(
+          "Debes seleccionar exactamente ocho terceros."
+        );
+
+        return;
+      }
+
+      onThirdQualifiedGroupsChange(
+        selectedGroups
+      );
+    });
+}
+
 function compareStandings(a, b) {
   // Simplificado:
   // 1) puntos
@@ -467,6 +784,164 @@ function calculateBestThirds(state) {
     })
     .filter(Boolean)
     .sort(compareStandings);
+}
+
+function compareThirdStatsOnly(a, b) {
+  if (b.pts !== a.pts) return b.pts - a.pts;
+  if (b.dg !== a.dg) return b.dg - a.dg;
+  if (b.gf !== a.gf) return b.gf - a.gf;
+
+  return 0;
+}
+
+function getManualThirdGroups(state, thirds) {
+  const validThirdGroups = new Set(
+    thirds.map((third) => third.group)
+  );
+
+  const groups = [
+    ...new Set(
+      state.thirdQualifiedGroupsOverride || []
+    ),
+  ]
+    .filter((group) => validThirdGroups.has(group))
+    .sort();
+
+  return groups.length === 8
+    ? groups
+    : null;
+}
+
+function areAllGroupsFinished(state) {
+  return Object.keys(state.groups).every((groupName) =>
+    isGroupFinished(state, groupName)
+  );
+}
+
+function getAutomaticThirdPlaceResolution(state) {
+  const thirds = calculateBestThirds(state);
+
+  if (!areAllGroupsFinished(state)) {
+    return {
+      status: "pending",
+      thirds,
+      assignments: null,
+      qualifiedGroups: [],
+    };
+  }
+
+  const eighth = thirds[7];
+  const ninth = thirds[8];
+
+  if (!eighth || !ninth) {
+    return {
+      status: "error",
+      thirds,
+      assignments: null,
+      qualifiedGroups: [],
+      message:
+        "No se han podido calcular los doce terceros.",
+    };
+  }
+
+  const requiresOfficialTiebreak =
+    compareThirdStatsOnly(eighth, ninth) === 0;
+
+  if (requiresOfficialTiebreak) {
+    const manualGroups =
+      getManualThirdGroups(state, thirds);
+
+    if (!manualGroups) {
+      return {
+        status: "needs-official-tiebreak",
+        thirds,
+        assignments: null,
+        qualifiedGroups: [],
+        message:
+          "Hay un empate en el corte entre el 8.º y el 9.º tercero. " +
+          "Hace falta aplicar conducta deportiva o ranking FIFA.",
+      };
+    }
+
+    const manualAssignments =
+      getThirdPlaceAssignment(manualGroups);
+
+    if (!manualAssignments) {
+      return {
+        status: "error",
+        thirds,
+        assignments: null,
+        qualifiedGroups: manualGroups,
+        message:
+          "No se encontró la combinación manual en el mapa oficial.",
+      };
+    }
+
+    return {
+      status: "manual",
+      thirds,
+      assignments: manualAssignments,
+      qualifiedGroups: manualGroups,
+    };
+  }
+
+  const qualifiedGroups = thirds
+    .slice(0, 8)
+    .map((third) => third.group)
+    .sort();
+
+  const assignments =
+    getThirdPlaceAssignment(qualifiedGroups);
+
+  if (!assignments) {
+    return {
+      status: "error",
+      thirds,
+      assignments: null,
+      qualifiedGroups,
+      message:
+        "No se encontró la combinación en el mapa oficial.",
+    };
+  }
+
+  return {
+    status: "ready",
+    thirds,
+    assignments,
+    qualifiedGroups,
+  };
+}
+
+function getEffectiveThirdAssignments(state) {
+  const resolution =
+    getAutomaticThirdPlaceResolution(state);
+
+  /*
+   * Dejamos preparada una vía manual de respaldo:
+   * state.thirdAssignments puede sobrescribir asignaciones automáticas.
+   *
+   * Formato:
+   * {
+   *   "1A": "E",
+   *   "1B": "J",
+   *   ...
+   * }
+   */
+  const assignments = {
+    ...(resolution.assignments || {}),
+    ...(state.thirdAssignments || {}),
+  };
+
+  const isComplete =
+    THIRD_PLACE_WINNER_SLOTS.every(
+      (winnerSlot) => assignments[winnerSlot]
+    );
+
+  return {
+    resolution,
+    assignments,
+    isComplete,
+  };
 }
 
 export function renderScoreboard(state) {
@@ -1350,7 +1825,7 @@ function renderFullBracket(state, standingsByGroup) {
   `;
 }
 
-function renderKnockout(state, onKnockoutChange) {
+function renderKnockout(state, onKnockoutChange, onThirdQualifiedGroupsChange) {
   const standingsByGroup =
   calculateGroupStandings(state);
   const container = document.createElement("div");
@@ -1359,9 +1834,10 @@ function renderKnockout(state, onKnockoutChange) {
     <div class="card">
       <h2>Eliminatorias</h2>
       <p class="muted">
-        Vista provisional del cuadro. En el siguiente paso conectaremos
-        los clasificados y ganadores para que se rellene automáticamente.
+        Los cruces se rellenan automáticamente conforme terminan los grupos y las rondas eliminatorias.
       </p>
+
+      ${renderThirdPlaceResolutionStatus(state)}
 
       <div class="knockout-phase-tabs">
         ${KNOCKOUT_PHASES.map(
@@ -1439,10 +1915,15 @@ function renderKnockout(state, onKnockoutChange) {
     onKnockoutChange
   );
 
+  wireThirdPlaceOverrideForm(
+    container,
+    onThirdQualifiedGroupsChange
+  );
+
   return container;
 }
 
-export function renderContent(state, onMatchChange, onKnockoutChange) {
+export function renderContent(state, onMatchChange, onKnockoutChange, onThirdQualifiedGroupsChange) {
   switch (state.currentView) {
     case "home":
       return renderHome(state);
@@ -1455,7 +1936,7 @@ export function renderContent(state, onMatchChange, onKnockoutChange) {
     case "matches":
       return renderMatches(state, onMatchChange, null, true);
     case "knockout":
-      return renderKnockout(state, onKnockoutChange);
+      return renderKnockout(state, onKnockoutChange, onThirdQualifiedGroupsChange);
     default:
       return renderHome(state);
   }

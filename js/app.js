@@ -52,6 +52,7 @@ let state = {
   matches: [],
   knockoutResults: {},
   thirdAssignments: {},
+  thirdQualifiedGroupsOverride: [],
 };
 
 let unsubscribeRemote = null;
@@ -162,7 +163,8 @@ function renderApp() {
     renderContent(
       state,
       handleMatchChange,
-      handleKnockoutChange
+      handleKnockoutChange,
+      handleThirdQualifiedGroupsChange
     )
   );
 }
@@ -238,6 +240,31 @@ async function handleKnockoutChange(matchId, nextResult) {
   }
 }
 
+async function handleThirdQualifiedGroupsChange(groups) {
+  if (!state.canEdit) return;
+
+  const cleanGroups = Array.isArray(groups)
+    ? [...new Set(groups)].sort()
+    : [];
+
+  state.thirdQualifiedGroupsOverride = cleanGroups;
+
+  renderApp();
+
+  try {
+    await saveRemoteState(state);
+  } catch (error) {
+    console.error(
+      "Error guardando desempate de terceros:",
+      error
+    );
+
+    alert(
+      "No se pudo guardar la selección manual de terceros."
+    );
+  }
+}
+
 async function handleReset() {
   if (!state.canEdit) return;
 
@@ -251,6 +278,7 @@ async function handleReset() {
 
   state.knockoutResults = {};
   state.thirdAssignments = {};
+  state.thirdQualifiedGroupsOverride = [];
 
   renderApp();
 
@@ -303,6 +331,7 @@ async function initRemoteForUser(user) {
   state.matches = [];
   state.knockoutResults = {};
   state.thirdAssignments = {};
+  state.thirdQualifiedGroupsOverride = [];
 
   if (!user) {
     state.authChecked = true;
@@ -323,6 +352,8 @@ async function initRemoteForUser(user) {
     const baseMatches = buildMatchesFromConfig(state.groups, state.schedule);
 
     const remote = await loadRemoteState();
+    state.thirdQualifiedGroupsOverride =
+      remote?.thirdQualifiedGroupsOverride || [];
     state.knockoutResults = remote?.knockoutResults || {};
     state.thirdAssignments = remote?.thirdAssignments || {};
 
@@ -337,6 +368,7 @@ async function initRemoteForUser(user) {
     state.canEdit = true;
 
     unsubscribeRemote = subscribeRemoteState((remoteData) => {
+      state.thirdQualifiedGroupsOverride =  remoteData?.thirdQualifiedGroupsOverride || [];
       state.knockoutResults = remoteData?.knockoutResults || {};
       state.thirdAssignments = remoteData?.thirdAssignments || {};
       
