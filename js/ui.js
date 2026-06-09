@@ -1038,11 +1038,29 @@ function renderMatches(state, onMatchChange, filterOwner = null, editable = true
           ${renderTeamLabel(home)}
         </span>
 
-        <input type="number" min="0" value="${match.homeGoals ?? ""}">
+        <input
+          class="group-score-input"
+          type="number"
+          min="0"
+          max="99"
+          step="1"
+          inputmode="numeric"
+          autocomplete="off"
+          value="${match.homeGoals ?? ""}"
+        >
 
         <span>-</span>
 
-        <input type="number" min="0" value="${match.awayGoals ?? ""}">
+        <input
+          class="group-score-input"
+          type="number"
+          min="0"
+          max="99"
+          step="1"
+          inputmode="numeric"
+          autocomplete="off"
+          value="${match.awayGoals ?? ""}"
+        >
 
         <span class="match-team match-team-away">
           ${renderTeamLabel(away)}
@@ -1051,23 +1069,32 @@ function renderMatches(state, onMatchChange, filterOwner = null, editable = true
 
       const inputs = row.querySelectorAll("input");
 
-      inputs[0].addEventListener("change", () => {
-        const newHomeGoals =
-          inputs[0].value === "" ? null : Number(inputs[0].value);
-        const newAwayGoals =
-          inputs[1].value === "" ? null : Number(inputs[1].value);
+      const pushResult = () => {
+      const newHomeGoals =
+        inputs[0].value === ""
+          ? null
+          : Number(inputs[0].value);
 
-        onMatchChange(match.id, newHomeGoals, newAwayGoals);
+      const newAwayGoals =
+        inputs[1].value === ""
+          ? null
+          : Number(inputs[1].value);
+
+      onMatchChange(
+        match.id,
+        newHomeGoals,
+        newAwayGoals
+      );
+    };
+
+    inputs.forEach((input) => {
+      input.addEventListener("input", pushResult);
+
+      input.addEventListener("focus", () => {
+        input.select();
       });
-
-      inputs[1].addEventListener("change", () => {
-        const newHomeGoals =
-          inputs[0].value === "" ? null : Number(inputs[0].value);
-        const newAwayGoals =
-          inputs[1].value === "" ? null : Number(inputs[1].value);
-
-        onMatchChange(match.id, newHomeGoals, newAwayGoals);
-      });
+    });
+    
     } else {
       row.innerHTML = `
         <span class="match-date">${formattedDate}</span>

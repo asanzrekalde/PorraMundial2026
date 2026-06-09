@@ -58,6 +58,44 @@ let state = {
 };
 
 let unsubscribeRemote = null;
+let groupSaveTimer = null;
+let deferredRenderTimer = null;
+
+function isEditingGroupScore() {
+  return document.activeElement?.classList?.contains(
+    "group-score-input"
+  );
+}
+
+function scheduleGroupSave() {
+  clearTimeout(groupSaveTimer);
+
+  groupSaveTimer = setTimeout(async () => {
+    try {
+      await saveRemoteState(state);
+    } catch (error) {
+      console.error(
+        "Error guardando resultado de grupos:",
+        error
+      );
+
+      alert("No se pudo guardar el resultado.");
+    }
+  }, 350);
+}
+
+function scheduleRenderAfterScoreEditing() {
+  clearTimeout(deferredRenderTimer);
+
+  deferredRenderTimer = setTimeout(() => {
+    if (isEditingGroupScore()) {
+      scheduleRenderAfterScoreEditing();
+      return;
+    }
+
+    renderApp();
+  }, 250);
+}
 
 function setActiveTab(viewName) {
   document.querySelectorAll(".tab").forEach((tab) => {
@@ -189,23 +227,28 @@ function hasAnyResults() {
   return hasGroupResults || hasKnockoutResults;
 }
 
-async function handleMatchChange(matchId, homeGoals, awayGoals) {
+function handleMatchChange(
+  matchId,
+  homeGoals,
+  awayGoals
+) {
   if (!state.canEdit) return;
 
-  const match = state.matches.find((m) => m.id === matchId);
+  const match = state.matches.find(
+    (item) => item.id === matchId
+  );
+
   if (!match) return;
 
   match.homeGoals = homeGoals;
   match.awayGoals = awayGoals;
 
-  renderApp();
+  // Actualizamos solo el marcador superior.
+  // No destruimos ni recreamos los inputs.
+  renderScoreboard(state);
 
-  try {
-    await saveRemoteState(state);
-  } catch (error) {
-    console.error("Error guardando en Firestore:", error);
-    alert("No se pudo guardar el cambio.");
-  }
+  // Guardado remoto agrupado para evitar peticiones innecesarias.
+  scheduleGroupSave();
 }
 
 async function handleKnockoutChange(matchId, nextResult) {
@@ -271,6 +314,7 @@ async function handleReset() {
     console.warn("Reset desactivado.");
     return;
   }
+
   if (!state.canEdit) return;
 
   if (!confirm("¿Seguro que quieres resetear todos los resultados?")) return;
@@ -379,6 +423,12 @@ async function initRemoteForUser(user) {
       
       const freshBaseMatches = buildMatchesFromConfig(state.groups, state.schedule);
       state.matches = mergeRemoteMatches(freshBaseMatches, remoteData?.matches || []);
+      if (isEditingGroupScore()) {
+        renderScoreboard(state);
+        scheduleRenderAfterScoreEditing();
+        return;
+      }
+
       renderApp();
     });
   } catch (error) {
