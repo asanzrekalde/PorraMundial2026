@@ -6,6 +6,7 @@ const VALID_VIEWS = new Set([
   "aitor",
   "groups",
   "matches",
+  "knockout",
 ]);
 
 function getSavedView() {
@@ -39,6 +40,8 @@ import {
 
 import { renderScoreboard, renderContent } from "./ui.js";
 
+const RESET_ENABLED = false;
+
 let state = {
   currentView: getSavedView(),
   user: null,
@@ -49,6 +52,9 @@ let state = {
   groups: {},
   schedule: {},
   matches: [],
+  knockoutResults: {},
+  thirdAssignments: {},
+  thirdQualifiedGroupsOverride: [],
 };
 
 let unsubscribeRemote = null;
@@ -85,13 +91,12 @@ function renderAuthBox() {
   const resetBtn = document.getElementById("reset-btn");
 
   if (resetBtn) {
-    const resetAllowed = isResetAllowed();
+    resetBtn.style.display =
+      RESET_ENABLED && state.hasAccess
+        ? "inline-block"
+        : "none";
 
-    resetBtn.style.display = state.hasAccess ? "inline-block" : "none";
-    resetBtn.disabled = !resetAllowed;
-    resetBtn.title = resetAllowed
-      ? "Resetear resultados"
-      : "Reset desactivado desde el inicio del Mundial";
+    resetBtn.disabled = !RESET_ENABLED;
   }
 
 }
@@ -155,7 +160,33 @@ function renderApp() {
   setActiveTab(state.currentView);
 
   view.innerHTML = "";
-  view.appendChild(renderContent(state, handleMatchChange));
+  view.appendChild(
+    renderContent(
+      state,
+      handleMatchChange,
+      handleKnockoutChange,
+      handleThirdQualifiedGroupsChange
+    )
+  );
+}
+
+function hasAnyResults() {
+  const hasGroupResults = state.matches.some(
+    (match) =>
+      match.homeGoals != null ||
+      match.awayGoals != null
+  );
+
+  const hasKnockoutResults = Object.values(
+    state.knockoutResults || {}
+  ).some(
+    (result) =>
+      result.homeGoals != null ||
+      result.awayGoals != null ||
+      result.winnerTeamId != null
+  );
+
+  return hasGroupResults || hasKnockoutResults;
 }
 
 async function handleMatchChange(matchId, homeGoals, awayGoals) {
@@ -177,7 +208,69 @@ async function handleMatchChange(matchId, homeGoals, awayGoals) {
   }
 }
 
+async function handleKnockoutChange(matchId, nextResult) {
+  if (!state.canEdit) return;
+
+  const cleanGoal = (value) =>
+    Number.isInteger(value) && value >= 0
+      ? value
+      : null;
+
+  const cleanResult = {
+    homeGoals: cleanGoal(nextResult.homeGoals),
+    awayGoals: cleanGoal(nextResult.awayGoals),
+    winnerTeamId:
+      typeof nextResult.winnerTeamId === "string" &&
+      nextResult.winnerTeamId.length > 0
+        ? nextResult.winnerTeamId
+        : null,
+  };
+
+  state.knockoutResults = {
+    ...(state.knockoutResults || {}),
+    [matchId]: cleanResult,
+  };
+
+  renderApp();
+
+  try {
+    await saveRemoteState(state);
+  } catch (error) {
+    console.error("Error guardando resultado KO:", error);
+    alert("No se pudo guardar el resultado de la eliminatoria.");
+  }
+}
+
+async function handleThirdQualifiedGroupsChange(groups) {
+  if (!state.canEdit) return;
+
+  const cleanGroups = Array.isArray(groups)
+    ? [...new Set(groups)].sort()
+    : [];
+
+  state.thirdQualifiedGroupsOverride = cleanGroups;
+
+  renderApp();
+
+  try {
+    await saveRemoteState(state);
+  } catch (error) {
+    console.error(
+      "Error guardando desempate de terceros:",
+      error
+    );
+
+    alert(
+      "No se pudo guardar la selección manual de terceros."
+    );
+  }
+}
+
 async function handleReset() {
+  if (!RESET_ENABLED) {
+    console.warn("Reset desactivado.");
+    return;
+  }
   if (!state.canEdit) return;
 
   if (!confirm("¿Seguro que quieres resetear todos los resultados?")) return;
@@ -187,6 +280,10 @@ async function handleReset() {
     homeGoals: null,
     awayGoals: null,
   }));
+
+  state.knockoutResults = {};
+  state.thirdAssignments = {};
+  state.thirdQualifiedGroupsOverride = [];
 
   renderApp();
 
@@ -237,6 +334,9 @@ async function initRemoteForUser(user) {
   state.groups = {};
   state.schedule = {};
   state.matches = [];
+  state.knockoutResults = {};
+  state.thirdAssignments = {};
+  state.thirdQualifiedGroupsOverride = [];
 
   if (!user) {
     state.authChecked = true;
@@ -257,6 +357,11 @@ async function initRemoteForUser(user) {
     const baseMatches = buildMatchesFromConfig(state.groups, state.schedule);
 
     const remote = await loadRemoteState();
+    state.thirdQualifiedGroupsOverride =
+      remote?.thirdQualifiedGroupsOverride || [];
+    state.knockoutResults = remote?.knockoutResults || {};
+    state.thirdAssignments = remote?.thirdAssignments || {};
+
     if (remote?.matches) {
       state.matches = mergeRemoteMatches(baseMatches, remote.matches);
     } else {
@@ -268,6 +373,10 @@ async function initRemoteForUser(user) {
     state.canEdit = true;
 
     unsubscribeRemote = subscribeRemoteState((remoteData) => {
+      state.thirdQualifiedGroupsOverride =  remoteData?.thirdQualifiedGroupsOverride || [];
+      state.knockoutResults = remoteData?.knockoutResults || {};
+      state.thirdAssignments = remoteData?.thirdAssignments || {};
+      
       const freshBaseMatches = buildMatchesFromConfig(state.groups, state.schedule);
       state.matches = mergeRemoteMatches(freshBaseMatches, remoteData?.matches || []);
       renderApp();

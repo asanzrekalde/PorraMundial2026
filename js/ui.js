@@ -1,3 +1,29 @@
+import {
+  KNOCKOUT_PHASES,
+  KNOCKOUT_TEMPLATE,
+} from "./knockout.js";
+
+import {
+  getThirdPlaceAssignment,
+  THIRD_PLACE_WINNER_SLOTS,
+} from "./third-place-map.js";
+
+const VALID_KNOCKOUT_PHASES = new Set([
+  "round32",
+  "round16",
+  "quarterfinals",
+  "semifinals",
+  "finals",
+]);
+
+let activeKnockoutPhase =
+  localStorage.getItem("porra-knockout-phase") ||
+  "round32";
+
+if (!VALID_KNOCKOUT_PHASES.has(activeKnockoutPhase)) {
+  activeKnockoutPhase = "round32";
+}
+
 let chartInstance = null;
 
 function getTeamById(state, id) {
@@ -125,26 +151,72 @@ function getMatchPointsForTeam(match, teamId) {
   return 0;
 }
 
-export function calculateTeamPoints(state, teamId) {
-  return state.matches.reduce((acc, match) => {
-    return acc + getMatchPointsForTeam(match, teamId);
+function calculateGroupTeamPoints(state, teamId) {
+  return state.matches
+    .filter(isGroupMatch)
+    .reduce((points, match) => {
+      if (
+        match.homeGoals == null ||
+        match.awayGoals == null
+      ) {
+        return points;
+      }
+
+      const isHome = match.home === teamId;
+      const isAway = match.away === teamId;
+
+      if (!isHome && !isAway) return points;
+
+      const goalsFor = isHome
+        ? match.homeGoals
+        : match.awayGoals;
+
+      const goalsAgainst = isHome
+        ? match.awayGoals
+        : match.homeGoals;
+
+      if (goalsFor > goalsAgainst) return points + 3;
+      if (goalsFor === goalsAgainst) return points + 1;
+
+      return points;
+    }, 0);
+}
+
+function calculateKnockoutTeamPoints(state, teamId) {
+  const standingsByGroup =
+    calculateGroupStandings(state);
+
+  return KNOCKOUT_TEMPLATE.reduce((points, match) => {
+    const winner = resolveKnockoutWinnerTeam(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
+    return winner?.id === teamId
+      ? points + 3
+      : points;
   }, 0);
 }
 
+export function calculateTeamPoints(state, teamId) {
+  return (
+    calculateGroupTeamPoints(state, teamId) +
+    calculateKnockoutTeamPoints(state, teamId)
+  );
+}
+
 export function calculatePoints(state) {
-  const points = { ANE: 0, AITOR: 0 };
+  const points = {
+    ANE: 0,
+    AITOR: 0,
+  };
 
-  state.matches.forEach((match) => {
-    const home = getTeamById(state, match.home);
-    const away = getTeamById(state, match.away);
+  state.teams.forEach((team) => {
+    if (!team.owner) return;
 
-    if (home?.owner) {
-      points[home.owner] += getMatchPointsForTeam(match, home.id);
-    }
-
-    if (away?.owner) {
-      points[away.owner] += getMatchPointsForTeam(match, away.id);
-    }
+    points[team.owner] +=
+      calculateTeamPoints(state, team.id);
   });
 
   return points;
@@ -228,6 +300,463 @@ function calculateGroupStandings(state) {
   return result;
 }
 
+function isGroupFinished(state, groupName) {
+  const groupMatches = state.matches.filter(
+    (match) =>
+      (!match.phase || match.phase === "groups") &&
+      match.group === groupName
+  );
+
+  return (
+    groupMatches.length === 6 &&
+    groupMatches.every(
+      (match) =>
+        match.homeGoals != null &&
+        match.awayGoals != null
+    )
+  );
+}
+
+function getKnockoutTemplateById(matchId) {
+  return KNOCKOUT_TEMPLATE.find((match) => match.id === matchId);
+}
+
+function getStoredKnockoutResult(state, matchId) {
+  return state.knockoutResults?.[matchId] || {};
+}
+
+function resolveKnockoutMatchTeams(state, matchId, standingsByGroup) {
+  const match = getKnockoutTemplateById(matchId);
+
+  if (!match) {
+    return { homeTeam: null, awayTeam: null };
+  }
+
+  return {
+    homeTeam: resolveKnockoutSourceTeam(
+      state,
+      match.homeSource,
+      standingsByGroup
+    ),
+    awayTeam: resolveKnockoutSourceTeam(
+      state,
+      match.awaySource,
+      standingsByGroup
+    ),
+  };
+}
+
+function resolveKnockoutWinnerTeam(state, matchId, standingsByGroup) {
+  const { homeTeam, awayTeam } =
+    resolveKnockoutMatchTeams(state, matchId, standingsByGroup);
+
+  if (!homeTeam || !awayTeam) return null;
+
+  const result = getStoredKnockoutResult(state, matchId);
+
+  if (
+    result.winnerTeamId === homeTeam.id ||
+    result.winnerTeamId === awayTeam.id
+  ) {
+    return getTeamById(state, result.winnerTeamId);
+  }
+
+  if (
+    result.homeGoals == null ||
+    result.awayGoals == null
+  ) {
+    return null;
+  }
+
+  if (result.homeGoals > result.awayGoals) return homeTeam;
+  if (result.awayGoals > result.homeGoals) return awayTeam;
+
+  // Si empatan, necesitaremos indicar manualmente quién pasa
+  // por prórroga o penaltis.
+  return null;
+}
+
+function resolveKnockoutLoserTeam(state, matchId, standingsByGroup) {
+  const { homeTeam, awayTeam } =
+    resolveKnockoutMatchTeams(state, matchId, standingsByGroup);
+
+  const winner =
+    resolveKnockoutWinnerTeam(state, matchId, standingsByGroup);
+
+  if (!homeTeam || !awayTeam || !winner) return null;
+
+  return winner.id === homeTeam.id ? awayTeam : homeTeam;
+}
+
+function resolveKnockoutSourceTeam(state, source, standingsByGroup) {
+  if (!source) return null;
+
+  if (source.type === "group") {
+    if (!isGroupFinished(state, source.group)) return null;
+
+    return standingsByGroup[source.group]?.[
+      source.position - 1
+    ]?.team || null;
+  }
+
+  if (source.type === "third") {
+    const { assignments } =
+      getEffectiveThirdAssignments(state);
+
+    const rawThirdGroup =
+      assignments?.[source.winnerSlot];
+
+    /*
+    * Acepta tanto "E" como "3E".
+    * El mapa debería devolver solo la letra,
+    * pero así evitamos que un formato inesperado
+    * impida resolver el cruce.
+    */
+    const thirdGroup =
+      typeof rawThirdGroup === "string"
+        ? rawThirdGroup
+            .replace(/^3/i, "")
+            .trim()
+            .toUpperCase()
+        : null;
+
+    if (!thirdGroup) {
+      console.warn(
+        "No se encontró grupo para el tercero:",
+        {
+          winnerSlot: source.winnerSlot,
+          assignments,
+        }
+      );
+
+      return null;
+    }
+
+    if (!isGroupFinished(state, thirdGroup)) {
+      console.warn(
+        "El grupo asignado todavía no figura como finalizado:",
+        thirdGroup
+      );
+
+      return null;
+    }
+
+    const thirdTeam =
+      standingsByGroup?.[thirdGroup]?.[2]?.team;
+
+    if (!thirdTeam) {
+      console.warn(
+        "No se encontró el tercer clasificado del grupo:",
+        {
+          thirdGroup,
+          availableGroups:
+            Object.keys(standingsByGroup || {}),
+          standings:
+            standingsByGroup?.[thirdGroup],
+        }
+      );
+
+      return null;
+    }
+
+    return thirdTeam;
+  }
+
+  if (source.type === "winner") {
+    return resolveKnockoutWinnerTeam(
+      state,
+      source.matchId,
+      standingsByGroup
+    );
+  }
+
+  if (source.type === "loser") {
+    return resolveKnockoutLoserTeam(
+      state,
+      source.matchId,
+      standingsByGroup
+    );
+  }
+
+  return null;
+}
+
+function renderResolvedKnockoutTeam(
+  state,
+  source,
+  standingsByGroup
+) {
+  const team = resolveKnockoutSourceTeam(
+    state,
+    source,
+    standingsByGroup
+  );
+
+  if (team) {
+    return renderTeamLabel(team);
+  }
+
+  return `
+    <span class="muted">
+      ${getKnockoutSourceLabel(source)}
+    </span>
+  `;
+}
+
+function renderManualThirdSelectionForm(state, thirds) {
+  const savedGroups = new Set(
+    state.thirdQualifiedGroupsOverride || []
+  );
+
+  /*
+   * Como propuesta inicial marcamos:
+   * - la selección guardada, si existe;
+   * - o los ocho primeros según los datos disponibles.
+   *
+   * En caso de empate oficial, revisa manualmente
+   * cuál debe entrar según tarjetas o ranking FIFA.
+   */
+  const defaultGroups =
+    savedGroups.size > 0
+      ? savedGroups
+      : new Set(
+          thirds
+            .slice(0, 8)
+            .map((third) => third.group)
+        );
+
+  const rows = thirds
+    .map((third, index) => {
+      const checked = defaultGroups.has(third.group)
+        ? "checked"
+        : "";
+
+      return `
+        <label class="third-override-row">
+          <input
+            type="checkbox"
+            data-third-group="${third.group}"
+            ${checked}
+          />
+
+          <span class="third-override-position">
+            ${index + 1}.
+          </span>
+
+          <span class="third-override-team">
+            ${renderTeamLabel(third.team)}
+          </span>
+
+          <span class="pill">
+            Grupo ${third.group}
+          </span>
+
+          <span class="third-override-stats">
+            ${third.pts} pts · DG ${third.dg} · GF ${third.gf}
+          </span>
+        </label>
+      `;
+    })
+    .join("");
+
+  return `
+    <div
+      class="third-override-form"
+      data-third-override-form
+    >
+      <p>
+        Selecciona exactamente los ocho terceros que
+        pasan de ronda según el criterio oficial.
+      </p>
+
+      <div class="third-override-counter">
+        Seleccionados:
+        <strong data-third-selected-count>0</strong>
+        / 8
+      </div>
+
+      <div class="third-override-list">
+        ${rows}
+      </div>
+
+      <button
+        class="btn primary"
+        type="button"
+        data-save-third-override
+      >
+        Guardar selección manual
+      </button>
+    </div>
+  `;
+}
+
+function renderThirdPlaceResolutionStatus(state) {
+  const {
+    resolution,
+    assignments,
+    isComplete,
+  } = getEffectiveThirdAssignments(state);
+
+  if (isComplete) {
+    const mode =
+      resolution.status === "ready"
+        ? "automáticamente"
+        : "mediante desempate manual";
+
+    return `
+      <div class="third-map-status third-map-status-ready">
+        <strong>
+          Cruces de mejores terceros resueltos ${mode}
+        </strong>
+
+        <div class="third-map-pills">
+          ${THIRD_PLACE_WINNER_SLOTS
+            .map(
+              (winnerSlot) => `
+                <span class="pill">
+                  ${winnerSlot} → 3.º ${assignments[winnerSlot]}
+                </span>
+              `
+            )
+            .join("")}
+        </div>
+
+        ${
+          resolution.status === "manual"
+            ? `
+              <button
+                class="btn"
+                type="button"
+                data-clear-third-override
+              >
+                Borrar desempate manual
+              </button>
+            `
+            : ""
+        }
+      </div>
+    `;
+  }
+
+  if (resolution.status === "pending") {
+    return `
+      <div class="third-map-status">
+        <strong>
+          Cruces con mejores terceros pendientes
+        </strong>
+
+        <p>
+          Se rellenarán automáticamente cuando terminen
+          los doce grupos.
+        </p>
+      </div>
+    `;
+  }
+
+  if (
+    resolution.status ===
+    "needs-official-tiebreak"
+  ) {
+    return `
+      <div class="third-map-status third-map-status-warning">
+        <strong>
+          Desempate oficial necesario
+        </strong>
+
+        <p>
+          ${resolution.message}
+        </p>
+
+        ${renderManualThirdSelectionForm(
+          state,
+          resolution.thirds
+        )}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="third-map-status third-map-status-error">
+      <strong>
+        No se pudieron resolver los mejores terceros
+      </strong>
+
+      <p>
+        ${resolution.message ?? "Error desconocido"}
+      </p>
+    </div>
+  `;
+}
+
+function wireThirdPlaceOverrideForm(
+  container,
+  onThirdQualifiedGroupsChange
+) {
+  const form = container.querySelector(
+    "[data-third-override-form]"
+  );
+
+  const clearButton = container.querySelector(
+    "[data-clear-third-override]"
+  );
+
+  clearButton?.addEventListener("click", () => {
+    onThirdQualifiedGroupsChange([]);
+  });
+
+  if (!form) return;
+
+  const checkboxes = [
+    ...form.querySelectorAll(
+      "input[data-third-group]"
+    ),
+  ];
+
+  const counter = form.querySelector(
+    "[data-third-selected-count]"
+  );
+
+  const updateCounter = () => {
+    const selected = checkboxes.filter(
+      (checkbox) => checkbox.checked
+    );
+
+    counter.textContent = selected.length;
+  };
+
+  checkboxes.forEach((checkbox) => {
+    checkbox.addEventListener(
+      "change",
+      updateCounter
+    );
+  });
+
+  updateCounter();
+
+  form
+    .querySelector("[data-save-third-override]")
+    .addEventListener("click", () => {
+      const selectedGroups = checkboxes
+        .filter((checkbox) => checkbox.checked)
+        .map(
+          (checkbox) =>
+            checkbox.dataset.thirdGroup
+        );
+
+      if (selectedGroups.length !== 8) {
+        alert(
+          "Debes seleccionar exactamente ocho terceros."
+        );
+
+        return;
+      }
+
+      onThirdQualifiedGroupsChange(
+        selectedGroups
+      );
+    });
+}
+
 function compareStandings(a, b) {
   // Simplificado:
   // 1) puntos
@@ -255,6 +784,164 @@ function calculateBestThirds(state) {
     })
     .filter(Boolean)
     .sort(compareStandings);
+}
+
+function compareThirdStatsOnly(a, b) {
+  if (b.pts !== a.pts) return b.pts - a.pts;
+  if (b.dg !== a.dg) return b.dg - a.dg;
+  if (b.gf !== a.gf) return b.gf - a.gf;
+
+  return 0;
+}
+
+function getManualThirdGroups(state, thirds) {
+  const validThirdGroups = new Set(
+    thirds.map((third) => third.group)
+  );
+
+  const groups = [
+    ...new Set(
+      state.thirdQualifiedGroupsOverride || []
+    ),
+  ]
+    .filter((group) => validThirdGroups.has(group))
+    .sort();
+
+  return groups.length === 8
+    ? groups
+    : null;
+}
+
+function areAllGroupsFinished(state) {
+  return Object.keys(state.groups).every((groupName) =>
+    isGroupFinished(state, groupName)
+  );
+}
+
+function getAutomaticThirdPlaceResolution(state) {
+  const thirds = calculateBestThirds(state);
+
+  if (!areAllGroupsFinished(state)) {
+    return {
+      status: "pending",
+      thirds,
+      assignments: null,
+      qualifiedGroups: [],
+    };
+  }
+
+  const eighth = thirds[7];
+  const ninth = thirds[8];
+
+  if (!eighth || !ninth) {
+    return {
+      status: "error",
+      thirds,
+      assignments: null,
+      qualifiedGroups: [],
+      message:
+        "No se han podido calcular los doce terceros.",
+    };
+  }
+
+  const requiresOfficialTiebreak =
+    compareThirdStatsOnly(eighth, ninth) === 0;
+
+  if (requiresOfficialTiebreak) {
+    const manualGroups =
+      getManualThirdGroups(state, thirds);
+
+    if (!manualGroups) {
+      return {
+        status: "needs-official-tiebreak",
+        thirds,
+        assignments: null,
+        qualifiedGroups: [],
+        message:
+          "Hay un empate en el corte entre el 8.º y el 9.º tercero. " +
+          "Hace falta aplicar conducta deportiva o ranking FIFA.",
+      };
+    }
+
+    const manualAssignments =
+      getThirdPlaceAssignment(manualGroups);
+
+    if (!manualAssignments) {
+      return {
+        status: "error",
+        thirds,
+        assignments: null,
+        qualifiedGroups: manualGroups,
+        message:
+          "No se encontró la combinación manual en el mapa oficial.",
+      };
+    }
+
+    return {
+      status: "manual",
+      thirds,
+      assignments: manualAssignments,
+      qualifiedGroups: manualGroups,
+    };
+  }
+
+  const qualifiedGroups = thirds
+    .slice(0, 8)
+    .map((third) => third.group)
+    .sort();
+
+  const assignments =
+    getThirdPlaceAssignment(qualifiedGroups);
+
+  if (!assignments) {
+    return {
+      status: "error",
+      thirds,
+      assignments: null,
+      qualifiedGroups,
+      message:
+        "No se encontró la combinación en el mapa oficial.",
+    };
+  }
+
+  return {
+    status: "ready",
+    thirds,
+    assignments,
+    qualifiedGroups,
+  };
+}
+
+function getEffectiveThirdAssignments(state) {
+  const resolution =
+    getAutomaticThirdPlaceResolution(state);
+
+  /*
+   * Dejamos preparada una vía manual de respaldo:
+   * state.thirdAssignments puede sobrescribir asignaciones automáticas.
+   *
+   * Formato:
+   * {
+   *   "1A": "E",
+   *   "1B": "J",
+   *   ...
+   * }
+   */
+  const assignments = {
+    ...(resolution.assignments || {}),
+    ...(state.thirdAssignments || {}),
+  };
+
+  const isComplete =
+    THIRD_PLACE_WINNER_SLOTS.every(
+      (winnerSlot) => assignments[winnerSlot]
+    );
+
+  return {
+    resolution,
+    assignments,
+    isComplete,
+  };
 }
 
 export function renderScoreboard(state) {
@@ -565,7 +1252,678 @@ function renderOwnerView(state, owner, onMatchChange) {
   return container;
 }
 
-export function renderContent(state, onMatchChange) {
+function getKnockoutSourceLabel(source) {
+  if (source.type === "group") {
+    return `${source.position}º Grupo ${source.group}`;
+  }
+
+  if (source.type === "third") {
+    return `3º ${source.candidates.join("/")}`;
+  }
+
+  if (source.type === "winner") {
+    return `Ganador ${source.matchId.replace("KO-", "")}`;
+  }
+
+  if (source.type === "loser") {
+    return `Perdedor ${source.matchId.replace("KO-", "")}`;
+  }
+
+  return "Pendiente";
+}
+
+function getKnockoutEditorData(
+  state,
+  match,
+  standingsByGroup
+) {
+  const { homeTeam, awayTeam } =
+    resolveKnockoutMatchTeams(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
+  const result =
+    getStoredKnockoutResult(state, match.id);
+
+  return {
+    homeTeam,
+    awayTeam,
+    result,
+  };
+}
+
+function renderKnockoutEditor(
+  state,
+  match,
+  standingsByGroup
+) {
+  const {
+    homeTeam,
+    awayTeam,
+    result,
+  } = getKnockoutEditorData(
+    state,
+    match,
+    standingsByGroup
+  );
+
+  if (!homeTeam || !awayTeam) {
+    return `
+      <div class="knockout-editor knockout-editor-pending">
+        <div>
+          ${renderResolvedKnockoutTeam(
+            state,
+            match.homeSource,
+            standingsByGroup
+          )}
+        </div>
+
+        <span class="knockout-versus">vs</span>
+
+        <div>
+          ${renderResolvedKnockoutTeam(
+            state,
+            match.awaySource,
+            standingsByGroup
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  const homeGoals = result.homeGoals ?? "";
+  const awayGoals = result.awayGoals ?? "";
+
+  const hasCompleteScore =
+    result.homeGoals != null &&
+    result.awayGoals != null;
+
+  const isTie =
+    hasCompleteScore &&
+    result.homeGoals === result.awayGoals;
+
+  const selectedWinner =
+    result.winnerTeamId ?? "";
+
+  return `
+    <div
+      class="knockout-editor"
+      data-ko-match-id="${match.id}"
+      data-home-team-id="${homeTeam.id}"
+      data-away-team-id="${awayTeam.id}"
+    >
+      <div class="knockout-editor-team knockout-editor-home">
+        ${renderTeamLabel(homeTeam)}
+      </div>
+
+      <input
+        class="knockout-goals knockout-home-goals"
+        type="number"
+        min="0"
+        inputmode="numeric"
+        value="${homeGoals}"
+        aria-label="Goles ${homeTeam.name}"
+      />
+
+      <span class="knockout-score-separator">-</span>
+
+      <input
+        class="knockout-goals knockout-away-goals"
+        type="number"
+        min="0"
+        inputmode="numeric"
+        value="${awayGoals}"
+        aria-label="Goles ${awayTeam.name}"
+      />
+
+      <div class="knockout-editor-team knockout-editor-away">
+        ${renderTeamLabel(awayTeam)}
+      </div>
+
+      ${
+        isTie
+          ? `
+            <label class="knockout-winner-box">
+              <span>Clasificado:</span>
+
+              <select class="knockout-winner-select">
+                <option value="">
+                  Selecciona quién pasa
+                </option>
+
+                <option
+                  value="${homeTeam.id}"
+                  ${
+                    selectedWinner === homeTeam.id
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  ${homeTeam.name}
+                </option>
+
+                <option
+                  value="${awayTeam.id}"
+                  ${
+                    selectedWinner === awayTeam.id
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  ${awayTeam.name}
+                </option>
+              </select>
+            </label>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function wireKnockoutEditors(
+  container,
+  onKnockoutChange
+) {
+  container
+    .querySelectorAll("[data-ko-match-id]")
+    .forEach((row) => {
+      const homeInput =
+        row.querySelector(".knockout-home-goals");
+
+      const awayInput =
+        row.querySelector(".knockout-away-goals");
+
+      const winnerSelect =
+        row.querySelector(".knockout-winner-select");
+
+      const pushResult = () => {
+        const homeGoals =
+          homeInput.value === ""
+            ? null
+            : Number(homeInput.value);
+
+        const awayGoals =
+          awayInput.value === ""
+            ? null
+            : Number(awayInput.value);
+
+        let winnerTeamId = null;
+
+        if (
+          Number.isInteger(homeGoals) &&
+          Number.isInteger(awayGoals)
+        ) {
+          if (homeGoals > awayGoals) {
+            winnerTeamId =
+              row.dataset.homeTeamId;
+          } else if (awayGoals > homeGoals) {
+            winnerTeamId =
+              row.dataset.awayTeamId;
+          } else {
+            winnerTeamId =
+              winnerSelect?.value || null;
+          }
+        }
+
+        onKnockoutChange(
+          row.dataset.koMatchId,
+          {
+            homeGoals,
+            awayGoals,
+            winnerTeamId,
+          }
+        );
+      };
+
+      homeInput.addEventListener("change", pushResult);
+      awayInput.addEventListener("change", pushResult);
+
+      winnerSelect?.addEventListener(
+        "change",
+        pushResult
+      );
+    });
+}
+
+function renderKnockoutMatch(
+  state,
+  match,
+  standingsByGroup
+) {
+  return `
+    <div class="knockout-match">
+      <div class="knockout-match-number">
+        ${match.title ?? `Partido ${match.number}`}
+      </div>
+
+      ${renderKnockoutEditor(
+        state,
+        match,
+        standingsByGroup
+      )}
+    </div>
+  `;
+}
+
+const BRACKET_CARD_WIDTH = 220;
+const BRACKET_CARD_HEIGHT = 62;
+const BRACKET_COLUMN_GAP = 64;
+const BRACKET_ROW_GAP = 78;
+const BRACKET_HEADER_HEIGHT = 48;
+
+function getMainBracketRounds() {
+  return [
+    {
+      id: "round32",
+      label: "Dieciseisavos",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.phase === "round32"),
+    },
+    {
+      id: "round16",
+      label: "Octavos",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.phase === "round16"),
+    },
+    {
+      id: "quarterfinals",
+      label: "Cuartos",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.phase === "quarterfinals"),
+    },
+    {
+      id: "semifinals",
+      label: "Semifinales",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.phase === "semifinals"),
+    },
+    {
+      id: "final",
+      label: "Final",
+      matches: KNOCKOUT_TEMPLATE.filter((m) => m.id === "KO-104"),
+    },
+  ];
+}
+
+function getPreviousMatchIds(match) {
+  return [match.homeSource, match.awaySource]
+    .filter((source) =>
+      source &&
+      (source.type === "winner" || source.type === "loser")
+    )
+    .map((source) => source.matchId);
+}
+
+function calculateBracketLayout() {
+  const rounds = getMainBracketRounds();
+  const positions = {};
+
+  // Dieciseisavos: posiciones regulares de arriba abajo
+  rounds[0].matches.forEach((match, index) => {
+    positions[match.id] = {
+      x: 0,
+      y: BRACKET_HEADER_HEIGHT + index * BRACKET_ROW_GAP,
+    };
+  });
+
+  // Rondas posteriores: cada partido se centra entre sus dos precedentes
+  rounds.slice(1).forEach((round, roundIndex) => {
+    const x =
+      (roundIndex + 1) *
+      (BRACKET_CARD_WIDTH + BRACKET_COLUMN_GAP);
+
+    round.matches.forEach((match, index) => {
+      const previousIds = getPreviousMatchIds(match);
+      const previousPositions = previousIds
+        .map((id) => positions[id])
+        .filter(Boolean);
+
+      const fallbackY =
+        BRACKET_HEADER_HEIGHT +
+        index * BRACKET_ROW_GAP * Math.pow(2, roundIndex + 1);
+
+      const y =
+        previousPositions.length > 0
+          ? previousPositions.reduce(
+              (acc, position) => acc + position.y,
+              0
+            ) / previousPositions.length
+          : fallbackY;
+
+      positions[match.id] = { x, y };
+    });
+  });
+
+  const width =
+    rounds.length * BRACKET_CARD_WIDTH +
+    (rounds.length - 1) * BRACKET_COLUMN_GAP;
+
+  const height =
+    Math.max(
+      ...Object.values(positions).map(
+        (position) => position.y + BRACKET_CARD_HEIGHT
+      )
+    ) + 16;
+
+  return { rounds, positions, width, height };
+}
+
+function renderBracketConnectors(layout) {
+  const paths = [];
+
+  layout.rounds.slice(1).forEach((round) => {
+    round.matches.forEach((targetMatch) => {
+      const target = layout.positions[targetMatch.id];
+      if (!target) return;
+
+      getPreviousMatchIds(targetMatch).forEach((previousId) => {
+        const source = layout.positions[previousId];
+        if (!source) return;
+
+        const x1 = source.x + BRACKET_CARD_WIDTH;
+        const y1 = source.y + BRACKET_CARD_HEIGHT / 2;
+
+        const x2 = target.x;
+        const y2 = target.y + BRACKET_CARD_HEIGHT / 2;
+
+        const middleX = x1 + (x2 - x1) / 2;
+
+        paths.push(`
+          <path
+            d="M ${x1} ${y1}
+               H ${middleX}
+               V ${y2}
+               H ${x2}"
+          />
+        `);
+      });
+    });
+  });
+
+  return `
+    <svg
+      class="full-bracket-connectors"
+      width="${layout.width}"
+      height="${layout.height}"
+      viewBox="0 0 ${layout.width} ${layout.height}"
+      aria-hidden="true"
+    >
+      ${paths.join("")}
+    </svg>
+  `;
+}
+
+function renderFullBracketTeamLine(
+  state,
+  source,
+  team,
+  score,
+  winnerTeamId
+) {
+  const winnerClass =
+    team && team.id === winnerTeamId
+      ? "winner"
+      : "";
+
+  return `
+    <div class="full-bracket-team ${winnerClass}">
+      <span>
+        ${
+          team
+            ? renderTeamLabel(team)
+            : `
+              <span class="muted">
+                ${getKnockoutSourceLabel(source)}
+              </span>
+            `
+        }
+      </span>
+
+      <strong>${score ?? "-"}</strong>
+    </div>
+  `;
+}
+
+function renderFullBracketCard(
+  state,
+  match,
+  position,
+  standingsByGroup
+) {
+  const { homeTeam, awayTeam } =
+    resolveKnockoutMatchTeams(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
+  const result =
+    getStoredKnockoutResult(state, match.id);
+
+  const winner =
+    resolveKnockoutWinnerTeam(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
+  return `
+    <article
+      class="full-bracket-card"
+      style="
+        left: ${position.x}px;
+        top: ${position.y}px;
+        width: ${BRACKET_CARD_WIDTH}px;
+        min-height: ${BRACKET_CARD_HEIGHT}px;
+      "
+    >
+      <div class="full-bracket-card-title">
+        ${match.title ?? `Partido ${match.number}`}
+      </div>
+
+      ${renderFullBracketTeamLine(
+        state,
+        match.homeSource,
+        homeTeam,
+        result.homeGoals,
+        winner?.id
+      )}
+
+      ${renderFullBracketTeamLine(
+        state,
+        match.awaySource,
+        awayTeam,
+        result.awayGoals,
+        winner?.id
+      )}
+    </article>
+  `;
+}
+
+function renderFullBracket(state, standingsByGroup) {
+  const layout = calculateBracketLayout();
+
+  const headers = layout.rounds
+    .map((round, index) => {
+      const left =
+        index * (BRACKET_CARD_WIDTH + BRACKET_COLUMN_GAP);
+
+      return `
+        <div
+          class="full-bracket-header"
+          style="
+            left: ${left}px;
+            width: ${BRACKET_CARD_WIDTH}px;
+          "
+        >
+          ${round.label}
+        </div>
+      `;
+    })
+    .join("");
+
+  const cards = layout.rounds
+    .flatMap((round) => round.matches)
+    .map((match) =>
+      renderFullBracketCard(
+        state,
+        match,
+        layout.positions[match.id],
+        standingsByGroup
+      )
+    )
+    .join("");
+
+  const thirdPlaceMatch =
+    KNOCKOUT_TEMPLATE.find((match) => match.id === "KO-103");
+
+  return `
+    <div class="card">
+      <h2>Cuadro completo</h2>
+      <p class="muted">
+        Se rellenará automáticamente conforme terminen
+        los grupos y las rondas eliminatorias.
+      </p>
+
+      <div class="full-bracket-scroll">
+        <div
+          class="full-bracket-board"
+          style="
+            width: ${layout.width}px;
+            height: ${layout.height}px;
+          "
+        >
+          ${renderBracketConnectors(layout)}
+          ${headers}
+          ${cards}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Tercer puesto</h2>
+
+      <div class="third-place-match">
+        <span>
+          ${renderResolvedKnockoutTeam(
+            state,
+            thirdPlaceMatch.homeSource,
+            standingsByGroup
+          )}
+        </span>
+
+        <strong>vs</strong>
+
+        <span>
+          ${renderResolvedKnockoutTeam(
+            state,
+            thirdPlaceMatch.awaySource,
+            standingsByGroup
+          )}
+        </span>
+      </div>
+    </div>
+  `;
+}
+
+function renderKnockout(state, onKnockoutChange, onThirdQualifiedGroupsChange) {
+  const standingsByGroup =
+  calculateGroupStandings(state);
+  const container = document.createElement("div");
+
+  container.innerHTML = `
+    <div class="card">
+      <h2>Eliminatorias</h2>
+      <p class="muted">
+        Los cruces se rellenan automáticamente conforme terminan los grupos y las rondas eliminatorias.
+      </p>
+
+      ${renderThirdPlaceResolutionStatus(state)}
+
+      <div class="knockout-phase-tabs">
+        ${KNOCKOUT_PHASES.map(
+          (phase, index) => `
+            <button
+              class="knockout-phase-tab ${
+                phase.id === activeKnockoutPhase
+                  ? "active"
+                  : ""
+              }"
+              data-phase="${phase.id}"
+            >
+              ${phase.label}
+            </button>
+          `
+        ).join("")}
+      </div>
+    </div>
+
+    ${KNOCKOUT_PHASES.map(
+      (phase, index) => `
+        <section
+          class="card knockout-phase-panel"
+          data-phase-panel="${phase.id}"
+          ${
+            phase.id === activeKnockoutPhase
+              ? ""
+              : "hidden"
+          }
+        >
+          <h2>${phase.label}</h2>
+
+          <div class="knockout-list">
+            ${KNOCKOUT_TEMPLATE
+              .filter((match) => match.phase === phase.id)
+              .map((match) =>
+                renderKnockoutMatch(
+                  state,
+                  match,
+                  standingsByGroup
+                )
+              )
+              .join("")}
+          </div>
+        </section>
+      `
+    ).join("")}
+
+    ${renderFullBracket(state, standingsByGroup)}
+  `;
+
+  container.querySelectorAll(".knockout-phase-tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      const selectedPhase = button.dataset.phase;
+
+      activeKnockoutPhase = selectedPhase;
+
+      localStorage.setItem(
+        "porra-knockout-phase",
+        activeKnockoutPhase
+      );
+
+      container.querySelectorAll(".knockout-phase-tab").forEach((tab) => {
+        tab.classList.toggle("active", tab === button);
+      });
+
+      container.querySelectorAll(".knockout-phase-panel").forEach((panel) => {
+        panel.hidden = panel.dataset.phasePanel !== selectedPhase;
+      });
+    });
+  });
+
+  wireKnockoutEditors(
+    container,
+    onKnockoutChange
+  );
+
+  wireThirdPlaceOverrideForm(
+    container,
+    onThirdQualifiedGroupsChange
+  );
+
+  return container;
+}
+
+export function renderContent(state, onMatchChange, onKnockoutChange, onThirdQualifiedGroupsChange) {
   switch (state.currentView) {
     case "home":
       return renderHome(state);
@@ -577,6 +1935,8 @@ export function renderContent(state, onMatchChange) {
       return renderGroups(state);
     case "matches":
       return renderMatches(state, onMatchChange, null, true);
+    case "knockout":
+      return renderKnockout(state, onKnockoutChange, onThirdQualifiedGroupsChange);
     default:
       return renderHome(state);
   }
