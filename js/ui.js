@@ -183,6 +183,17 @@ function calculateGroupTeamPoints(state, teamId) {
 }
 
 function calculateKnockoutTeamPoints(state, teamId) {
+  const hasKnockoutResults = Object.values(
+    state.knockoutResults || {}
+  ).some(
+    (result) =>
+      result?.homeGoals != null ||
+      result?.awayGoals != null ||
+      result?.winnerTeamId != null
+  );
+
+  if (!hasKnockoutResults) return 0;
+
   const standingsByGroup =
     calculateGroupStandings(state);
 
@@ -212,11 +223,71 @@ export function calculatePoints(state) {
     AITOR: 0,
   };
 
-  state.teams.forEach((team) => {
-    if (!team.owner) return;
+  /*
+   * Fase de grupos:
+   * un único recorrido de los partidos.
+   */
+  state.matches
+    .filter(isGroupMatch)
+    .forEach((match) => {
+      if (
+        match.homeGoals == null ||
+        match.awayGoals == null
+      ) {
+        return;
+      }
 
-    points[team.owner] +=
-      calculateTeamPoints(state, team.id);
+      const home = getTeamById(state, match.home);
+      const away = getTeamById(state, match.away);
+
+      if (!home || !away) return;
+
+      if (match.homeGoals > match.awayGoals) {
+        if (home.owner) points[home.owner] += 3;
+      } else if (
+        match.awayGoals > match.homeGoals
+      ) {
+        if (away.owner) points[away.owner] += 3;
+      } else {
+        if (home.owner) points[home.owner] += 1;
+        if (away.owner) points[away.owner] += 1;
+      }
+    });
+
+  /*
+   * Mientras no haya ningún resultado KO,
+   * evitamos resolver todo el cuadro innecesariamente.
+   */
+  const hasKnockoutResults = Object.values(
+    state.knockoutResults || {}
+  ).some(
+    (result) =>
+      result?.homeGoals != null ||
+      result?.awayGoals != null ||
+      result?.winnerTeamId != null
+  );
+
+  if (!hasKnockoutResults) {
+    return points;
+  }
+
+  /*
+   * Eliminatorias:
+   * recorremos cada partido una sola vez.
+   */
+  const standingsByGroup =
+    calculateGroupStandings(state);
+
+  KNOCKOUT_TEMPLATE.forEach((match) => {
+    const winner = resolveKnockoutWinnerTeam(
+      state,
+      match.id,
+      standingsByGroup
+    );
+
+    if (winner?.owner) {
+      points[winner.owner] += 3;
+    }
   });
 
   return points;
@@ -1088,12 +1159,44 @@ function renderMatches(state, onMatchChange, filterOwner = null, editable = true
     };
 
     inputs.forEach((input) => {
-      input.addEventListener("input", pushResult);
+  /*
+   * Guarda al abandonar el campo:
+   * - al pulsar Tab;
+   * - al pulsar Enter;
+   * - o al hacer clic fuera.
+   *
+   * Así no recalculamos la app con cada pulsación.
+   */
+  input.addEventListener("change", pushResult);
 
-      input.addEventListener("focus", () => {
-        input.select();
-      });
-    });
+  /*
+   * Al entrar en un input, selecciona el valor anterior.
+   * Puedes sobrescribirlo directamente escribiendo un número.
+   */
+  input.addEventListener("focus", () => {
+    input.select();
+  });
+
+  /*
+   * Enter funciona como Tab:
+   * guarda y avanza al siguiente marcador.
+   */
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+
+    event.preventDefault();
+
+    pushResult();
+
+    const allInputs = [
+      ...document.querySelectorAll(".group-score-input"),
+    ];
+
+    const currentIndex = allInputs.indexOf(input);
+
+    allInputs[currentIndex + 1]?.focus();
+  });
+});
     
     } else {
       row.innerHTML = `

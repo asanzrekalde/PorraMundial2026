@@ -60,6 +60,7 @@ let state = {
 let unsubscribeRemote = null;
 let groupSaveTimer = null;
 let deferredRenderTimer = null;
+let scoreboardRefreshTimer = null;
 
 function isEditingGroupScore() {
   return document.activeElement?.classList?.contains(
@@ -81,7 +82,24 @@ function scheduleGroupSave() {
 
       alert("No se pudo guardar el resultado.");
     }
-  }, 350);
+  }, 700);
+}
+
+function scheduleScoreboardRefresh() {
+  clearTimeout(scoreboardRefreshTimer);
+
+  scoreboardRefreshTimer = setTimeout(() => {
+    /*
+     * Si sigues introduciendo resultados con Tab,
+     * esperamos para no robar el foco.
+     */
+    if (isEditingGroupScore()) {
+      scheduleScoreboardRefresh();
+      return;
+    }
+
+    renderScoreboard(state);
+  }, 200);
 }
 
 function scheduleRenderAfterScoreEditing() {
@@ -243,11 +261,11 @@ function handleMatchChange(
   match.homeGoals = homeGoals;
   match.awayGoals = awayGoals;
 
-  // Actualizamos solo el marcador superior.
-  // No destruimos ni recreamos los inputs.
-  renderScoreboard(state);
-
-  // Guardado remoto agrupado para evitar peticiones innecesarias.
+  /*
+   * Nada de renderApp() ni cálculo pesado inmediato.
+   * Guardamos y refrescamos tras una pequeña pausa.
+   */
+  scheduleScoreboardRefresh();
   scheduleGroupSave();
 }
 
