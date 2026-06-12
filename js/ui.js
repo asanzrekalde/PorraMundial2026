@@ -151,81 +151,23 @@ function getMatchPointsForTeam(match, teamId) {
   return 0;
 }
 
-function calculateGroupTeamPoints(state, teamId) {
-  return state.matches
-    .filter(isGroupMatch)
-    .reduce((points, match) => {
-      if (
-        match.homeGoals == null ||
-        match.awayGoals == null
-      ) {
-        return points;
-      }
+function addPointsToTeam(pointsByTeam, teamId, points) {
+  if (!teamId || !points) return;
 
-      const isHome = match.home === teamId;
-      const isAway = match.away === teamId;
-
-      if (!isHome && !isAway) return points;
-
-      const goalsFor = isHome
-        ? match.homeGoals
-        : match.awayGoals;
-
-      const goalsAgainst = isHome
-        ? match.awayGoals
-        : match.homeGoals;
-
-      if (goalsFor > goalsAgainst) return points + 3;
-      if (goalsFor === goalsAgainst) return points + 1;
-
-      return points;
-    }, 0);
-}
-
-function calculateKnockoutTeamPoints(state, teamId) {
-  const hasKnockoutResults = Object.values(
-    state.knockoutResults || {}
-  ).some(
-    (result) =>
-      result?.homeGoals != null ||
-      result?.awayGoals != null ||
-      result?.winnerTeamId != null
-  );
-
-  if (!hasKnockoutResults) return 0;
-
-  const standingsByGroup =
-    calculateGroupStandings(state);
-
-  return KNOCKOUT_TEMPLATE.reduce((points, match) => {
-    const winner = resolveKnockoutWinnerTeam(
-      state,
-      match.id,
-      standingsByGroup
-    );
-
-    return winner?.id === teamId
-      ? points + 3
-      : points;
-  }, 0);
-}
-
-export function calculateTeamPoints(state, teamId) {
-  return (
-    calculateGroupTeamPoints(state, teamId) +
-    calculateKnockoutTeamPoints(state, teamId)
+  pointsByTeam.set(
+    teamId,
+    (pointsByTeam.get(teamId) || 0) + points
   );
 }
 
-export function calculatePoints(state) {
-  const points = {
-    ANE: 0,
-    AITOR: 0,
-  };
+function buildTeamPointsMap(state) {
+  const pointsByTeam = new Map(
+    state.teams.map((team) => [team.id, 0])
+  );
 
   /*
    * Fase de grupos:
-   * un único recorrido de los partidos.
+   * recorremos todos los partidos una sola vez.
    */
   state.matches
     .filter(isGroupMatch)
@@ -237,26 +179,23 @@ export function calculatePoints(state) {
         return;
       }
 
-      const home = getTeamById(state, match.home);
-      const away = getTeamById(state, match.away);
-
-      if (!home || !away) return;
-
       if (match.homeGoals > match.awayGoals) {
-        if (home.owner) points[home.owner] += 3;
-      } else if (
-        match.awayGoals > match.homeGoals
-      ) {
-        if (away.owner) points[away.owner] += 3;
-      } else {
-        if (home.owner) points[home.owner] += 1;
-        if (away.owner) points[away.owner] += 1;
+        addPointsToTeam(pointsByTeam, match.home, 3);
+        return;
       }
+
+      if (match.awayGoals > match.homeGoals) {
+        addPointsToTeam(pointsByTeam, match.away, 3);
+        return;
+      }
+
+      addPointsToTeam(pointsByTeam, match.home, 1);
+      addPointsToTeam(pointsByTeam, match.away, 1);
     });
 
   /*
-   * Mientras no haya ningún resultado KO,
-   * evitamos resolver todo el cuadro innecesariamente.
+   * Si todavía no hay resultados KO,
+   * evitamos calcular todo el cuadro.
    */
   const hasKnockoutResults = Object.values(
     state.knockoutResults || {}
@@ -268,12 +207,13 @@ export function calculatePoints(state) {
   );
 
   if (!hasKnockoutResults) {
-    return points;
+    return pointsByTeam;
   }
 
   /*
    * Eliminatorias:
-   * recorremos cada partido una sola vez.
+   * calculamos la clasificación solo una vez
+   * y recorremos cada partido KO una sola vez.
    */
   const standingsByGroup =
     calculateGroupStandings(state);
@@ -285,12 +225,42 @@ export function calculatePoints(state) {
       standingsByGroup
     );
 
-    if (winner?.owner) {
-      points[winner.owner] += 3;
+    if (winner?.id) {
+      addPointsToTeam(pointsByTeam, winner.id, 3);
     }
   });
 
-  return points;
+  return pointsByTeam;
+}
+
+export function calculateTeamPoints(
+  state,
+  teamId,
+  pointsByTeam = null
+) {
+  const map =
+    pointsByTeam || buildTeamPointsMap(state);
+
+  return map.get(teamId) || 0;
+}
+
+export function calculatePoints(state) {
+  const totals = {
+    ANE: 0,
+    AITOR: 0,
+  };
+
+  const pointsByTeam =
+    buildTeamPointsMap(state);
+
+  state.teams.forEach((team) => {
+    if (!team.owner) return;
+
+    totals[team.owner] +=
+      pointsByTeam.get(team.id) || 0;
+  });
+
+  return totals;
 }
 
 function createEmptyStanding(team) {
@@ -1326,10 +1296,22 @@ function renderGroups(state) {
 function renderOwnerView(state, owner, onMatchChange) {
   const container = document.createElement("div");
 
-  const teams = getOwnedTeams(state, owner).sort((a, b) => {
-    const diff = calculateTeamPoints(state, b.id) - calculateTeamPoints(state, a.id);
-    return diff || a.name.localeCompare(b.name);
-  });
+  const pointsByTeam =
+    buildTeamPointsMap(state);
+
+  const getPoints = (team) =>
+    pointsByTeam.get(team.id) || 0;
+
+  const teams = getOwnedTeams(state, owner)
+    .sort((a, b) => {
+      const diff =
+        getPoints(b) - getPoints(a);
+
+      return (
+        diff ||
+        a.name.localeCompare(b.name, "es")
+      );
+    });
 
   let totalPoints = 0;
 
@@ -1338,7 +1320,7 @@ function renderOwnerView(state, owner, onMatchChange) {
 
   const tableRows = teams
     .map((team) => {
-      const pts = calculateTeamPoints(state, team.id);
+      const pts = getPoints(team);
       totalPoints += pts;
       return `
         <tr>
